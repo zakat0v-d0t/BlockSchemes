@@ -36,8 +36,15 @@ def build_dot_from_model(model: Dict[str, Any]) -> str:
         # Экранирование для DOT: сначала бэкслеши, затем кавычки и переводы строк
         safe_text = raw_text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
 
-        w_val = n.get("width", 2.0)
-        h_val = n.get("height", 0.7)
+        try:
+            w_val = float(n.get("width") or 2.0)
+        except (ValueError, TypeError):
+            w_val = 2.0
+        try:
+            h_val = float(n.get("height") or 0.7)
+        except (ValueError, TypeError):
+            h_val = 0.7
+
         # Graphviz принимает width и height в дюймах (1 дюйм = 72 pt)
         w = round(w_val / 72.0, 2) if w_val > 10 else round(w_val, 2)
         h = round(h_val / 72.0, 2) if h_val > 10 else round(h_val, 2)
@@ -81,8 +88,10 @@ def build_dot_from_model(model: Dict[str, Any]) -> str:
 
     lines.append('')
     for e in edges:
-        from_id = re.sub(r"[^a-zA-Z0-9_]", "_", str(e.get("from", "")))
-        to_id = re.sub(r"[^a-zA-Z0-9_]", "_", str(e.get("to", "")))
+        from_id = re.sub(r"[^a-zA-Z0-9_]", "_", str(e.get("from", ""))).strip("_")
+        to_id = re.sub(r"[^a-zA-Z0-9_]", "_", str(e.get("to", ""))).strip("_")
+        if not from_id or not to_id or from_id.lower() == "none" or to_id.lower() == "none":
+            continue
         label = str(e.get("label", "")).strip()
         from_port = re.sub(r"[^a-zA-Z0-9_]", "_", str(e["fromPort"])) if e.get("fromPort") else None
         to_port = re.sub(r"[^a-zA-Z0-9_]", "_", str(e["toPort"])) if e.get("toPort") else None
@@ -161,6 +170,9 @@ def fix_penetrating_arrows(svg: str) -> str:
             nums = [float(x) for x in re.findall(r"[-+]?\d*\.?\d+", p.group(1))]
             for i in range(0, len(nums) - 1, 2):
                 pts.append((nums[i], nums[i + 1]))
+        for ell in re.finditer(r'<ellipse[^>]*cx="([^"]+)"\s*cy="([^"]+)"\s*rx="([^"]+)"\s*ry="([^"]+)"', body):
+            cx, cy, rx, ry = map(float, ell.groups())
+            pts.extend([(cx - rx, cy - ry), (cx + rx, cy + ry)])
         if pts:
             nodes[name] = {
                 "min_x": min(p[0] for p in pts), "max_x": max(p[0] for p in pts),
@@ -263,7 +275,8 @@ def calculate_layout(dot_str: str) -> Dict[str, Any]:
     res = subprocess.run(["dot", "-Tjson"], input=dot_str, text=True, capture_output=True, check=True, timeout=10)
     raw = json.loads(res.stdout)
 
-    bb = [float(v) for v in raw.get("bb", "0,0,800,600").split(",")]
+    bb_str = raw.get("bb") or "0,0,800,600"
+    bb = [float(v) for v in bb_str.split(",")]
     canvas_height = bb[3] if len(bb) >= 4 else 600.0
 
     node_positions = {}

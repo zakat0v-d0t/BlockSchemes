@@ -45,15 +45,15 @@ class ParseRequest(BaseModel):
 
 
 class FlowchartModel(BaseModel):
-    nodes: List[Dict[str, Any]]
-    edges: List[Dict[str, Any]]
-    dot: Optional[str] = None
+    nodes: List[Dict[str, Any]] = Field(default_factory=list)
+    edges: List[Dict[str, Any]] = Field(default_factory=list)
+    dot: Optional[str] = Field(default=None, max_length=2_000_000)
 
 
 class ExportRequest(BaseModel):
     model: Optional[Dict[str, Any]] = None
-    dot: Optional[str] = None
-    svg: Optional[str] = None
+    dot: Optional[str] = Field(default=None, max_length=2_000_000)
+    svg: Optional[str] = Field(default=None, max_length=5_000_000)
     format: str = "png"
     dpi: Optional[int] = Field(default=300, ge=50, le=1200)
 
@@ -108,9 +108,12 @@ async def api_parse_code(req: ParseRequest):
 @app.post("/api/upload-file")
 async def api_upload_file(file: UploadFile = File(...)):
     """Загрузка файла с кодом через Drag & Drop или файловый диалог."""
-    contents = await file.read(2 * 1024 * 1024 + 1)
-    if len(contents) > 2 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Файл слишком большой")
+    try:
+        contents = await file.read(2 * 1024 * 1024 + 1)
+        if len(contents) > 2 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Файл слишком большой")
+    finally:
+        await file.close()
 
     try:
         code_str = contents.decode("utf-8")
@@ -163,6 +166,8 @@ async def api_render_svg(flowchart: FlowchartModel):
     try:
         svg = render_svg(dot_str)
         return {"svg": svg, "dot": dot_str}
+    except subprocess.CalledProcessError:
+        raise HTTPException(status_code=400, detail="Некорректный синтаксис DOT схемы")
     except Exception as e:
         logger.exception("Ошибка рендеринга SVG: %s", e)
         raise HTTPException(status_code=500, detail="Ошибка рендеринга схемы")
@@ -175,6 +180,8 @@ async def api_auto_layout(flowchart: FlowchartModel):
     try:
         layout = calculate_layout(dot_str)
         return layout
+    except subprocess.CalledProcessError:
+        raise HTTPException(status_code=400, detail="Некорректный синтаксис DOT схемы")
     except Exception as e:
         logger.exception("Ошибка расчета разметки: %s", e)
         raise HTTPException(status_code=500, detail="Ошибка расчета разметки схемы")
@@ -199,6 +206,8 @@ async def api_export(req: ExportRequest):
     try:
         if fmt == "dot":
             dot_str = req.dot if req.dot else (build_dot_from_model(req.model) if req.model else "")
+            if not dot_str.strip():
+                raise HTTPException(status_code=400, detail="Отсутствуют данные схемы")
             return Response(
                 content=dot_str.encode("utf-8"),
                 media_type="text/vnd.graphviz",
@@ -307,8 +316,7 @@ async def favicon():
 @app.get("/")
 async def root():
     index_path = os.path.join(FRONTEND_DIR, "index.html")
-    with open(index_path, "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    return FileResponse(index_path, media_type="text/html")
 
 
 if __name__ == "__main__":

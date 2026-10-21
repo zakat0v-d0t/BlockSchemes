@@ -80,8 +80,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // Инспектор стрелок
   edgeLabelInput.addEventListener("input", (e) => {
     if (currentSelectedEdgeIndex !== null) {
-      canvas.updateEdge(currentSelectedEdgeIndex, { label: e.target.value.trim() });
+      canvas.updateEdge(currentSelectedEdgeIndex, { label: e.target.value.trim() }, false);
     }
+  });
+
+  edgeLabelInput.addEventListener("change", () => {
+    canvas.pushState();
   });
 
   document.querySelectorAll(".edge-quick-btn").forEach(btn => {
@@ -137,7 +141,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     edges.forEach((edge) => {
       const targetNode = canvas.nodes.find(n => n.id === edge.to);
-      const targetName = targetNode ? (targetNode.text.split("\n")[0].substring(0, 15) || targetNode.id) : edge.to;
+      const targetName = targetNode
+        ? ((targetNode.text || "").split("\n")[0].substring(0, 15) || targetNode.id)
+        : edge.to;
 
       const row = document.createElement("div");
       row.className = "edge-item-row";
@@ -189,8 +195,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   blockTextInput.addEventListener("input", (e) => {
     if (currentSelectedNode) {
-      canvas.updateNode(currentSelectedNode.id, { text: e.target.value });
+      canvas.updateNode(currentSelectedNode.id, { text: e.target.value }, false);
     }
+  });
+
+  blockTextInput.addEventListener("change", () => {
+    canvas.pushState();
   });
 
   document.getElementById("btn-delete-selected").addEventListener("click", () => {
@@ -511,9 +521,26 @@ document.addEventListener("DOMContentLoaded", () => {
       const resp = await fetch("/api/auto-layout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nodes: [], edges: [], dot: dotStr })
+        body: JSON.stringify({ nodes: canvas.nodes, edges: canvas.edges, dot: dotStr })
       });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || "Ошибка разметки DOT");
+      }
       const layout = await resp.json();
+      if (layout && layout.positions) {
+        canvas.nodes.forEach(n => {
+          if (layout.positions[n.id]) {
+            const pos = layout.positions[n.id];
+            n.x = pos.x;
+            n.y = pos.y;
+            n.width = pos.width;
+            n.height = pos.height;
+          }
+        });
+        canvas.pushState();
+        canvas.render();
+      }
       modalDot.classList.remove("active");
     } catch (err) {
       alert("Ошибка применения DOT: " + err.message);

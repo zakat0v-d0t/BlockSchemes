@@ -126,7 +126,9 @@ class FlowchartCanvas {
       fromPort: e.fromPort || null,
       toPort: e.toPort || null,
       waypoints: Array.isArray(e.waypoints)
-        ? e.waypoints.map(p => ({ x: Number(p.x), y: Number(p.y) }))
+        ? e.waypoints
+            .filter(p => p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)))
+            .map(p => ({ x: Number(p.x), y: Number(p.y) }))
         : []
     }));
 
@@ -220,8 +222,9 @@ class FlowchartCanvas {
         const pB = pts[midSegIdx + 1] || pA;
         const midX = Math.round((pA.x + pB.x) / 2 + 10);
         const midY = Math.round((pA.y + pB.y) / 2 - 6);
+        const labelW = Math.max(36, String(escapedLabel).length * 8 + 14);
         edgesSvg += `
-          <rect x="${midX - 18}" y="${midY - 11}" width="36" height="16" rx="3" class="edge-label-bg" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" />
+          <rect x="${midX - labelW / 2}" y="${midY - 11}" width="${labelW}" height="16" rx="3" class="edge-label-bg" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" />
           <text x="${midX}" y="${midY + 1}" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', Arial, sans-serif" font-size="11px" fill="#000000">${escapedLabel}</text>
         `;
       }
@@ -334,19 +337,23 @@ class FlowchartCanvas {
     this.render();
   }
 
-  updateNode(id, props) {
+  updateNode(id, props, recordHistory = true) {
     const node = this.nodes.find(n => n.id === id);
     if (!node) return;
     Object.assign(node, props);
-    this.pushState();
+    if (recordHistory) {
+      this.pushState();
+    }
     this.render();
   }
 
-  updateEdge(index, props) {
+  updateEdge(index, props, recordHistory = true) {
     const edge = this.edges[index];
     if (!edge) return;
     Object.assign(edge, props);
-    this.pushState();
+    if (recordHistory) {
+      this.pushState();
+    }
     this.render();
   }
 
@@ -360,6 +367,10 @@ class FlowchartCanvas {
     const tempPort = edge.fromPort;
     edge.fromPort = edge.toPort;
     edge.toPort = tempPort;
+
+    if (edge.waypoints && edge.waypoints.length > 0) {
+      edge.waypoints.reverse();
+    }
 
     this.pushState();
     this.render();
@@ -467,12 +478,13 @@ class FlowchartCanvas {
         const pB = pts[midSegIdx + 1] || pA;
         const midX = Math.round((pA.x + pB.x) / 2 + 10);
         const midY = Math.round((pA.y + pB.y) / 2 - 6);
+        const labelW = Math.max(36, String(edge.label).length * 8 + 14);
 
         const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         bgRect.setAttribute("class", "edge-label-bg");
-        bgRect.setAttribute("x", midX - 18);
+        bgRect.setAttribute("x", midX - labelW / 2);
         bgRect.setAttribute("y", midY - 11);
-        bgRect.setAttribute("width", 36);
+        bgRect.setAttribute("width", labelW);
         bgRect.setAttribute("height", 16);
         bgRect.setAttribute("rx", 3);
         g.appendChild(bgRect);
@@ -487,33 +499,37 @@ class FlowchartCanvas {
 
       // Клик по стрелке: выделение или перетаскивание произвольной точки стрелки
       g.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
         e.stopPropagation();
         if (this.selectedEdgeIndex !== idx) {
           this.selectEdge(idx);
-        } else {
-          // Стрелка уже выбрана: клик прямо в линию добавляет новый излом в точке клика и начинает его драг!
-          const mouseCanvas = this.clientToCanvas(e.clientX, e.clientY);
-          let bestSeg = 0;
-          let bestDist = Infinity;
-          for (let i = 0; i < pts.length - 1; i++) {
-            const d = this.distanceToSegment(mouseCanvas, pts[i], pts[i + 1]);
-            if (d < bestDist) {
-              bestDist = d;
-              bestSeg = i;
-            }
-          }
-          if (!edge.waypoints || edge.waypoints.length === 0) {
-            edge.waypoints = pts.slice(1, -1).map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }));
-          }
-          const newPt = { x: Math.round(mouseCanvas.x), y: Math.round(mouseCanvas.y) };
-          edge.waypoints.splice(bestSeg, 0, newPt);
-          this.draggedWaypoint = {
-            edgeIndex: idx,
-            wpIndex: bestSeg,
-            startPos: newPt
-          };
-          this.render();
+          return;
         }
+        // При двойном клике не создаем паразитный waypoint
+        if (e.detail > 1) return;
+
+        // Стрелка уже выбрана: клик прямо в линию добавляет новый излом в точке клика и начинает его драг!
+        const mouseCanvas = this.clientToCanvas(e.clientX, e.clientY);
+        let bestSeg = 0;
+        let bestDist = Infinity;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const d = this.distanceToSegment(mouseCanvas, pts[i], pts[i + 1]);
+          if (d < bestDist) {
+            bestDist = d;
+            bestSeg = i;
+          }
+        }
+        if (!edge.waypoints || edge.waypoints.length === 0) {
+          edge.waypoints = pts.slice(1, -1).map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+        }
+        const newPt = { x: Math.round(mouseCanvas.x), y: Math.round(mouseCanvas.y) };
+        edge.waypoints.splice(bestSeg, 0, newPt);
+        this.draggedWaypoint = {
+          edgeIndex: idx,
+          wpIndex: bestSeg,
+          startPos: newPt
+        };
+        this.render();
       });
 
       // Двойной клик по стрелке — быстрое редактирование метки
@@ -651,6 +667,7 @@ class FlowchartCanvas {
 
     // Pan холста и сброс выделения при клике в пустоту
     this.svg.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
       if (e.target === this.svg || e.target.tagName === "rect") {
         this.isPanning = true;
         this.startPan = { x: e.clientX - this.panX, y: e.clientY - this.panY };
@@ -686,9 +703,15 @@ class FlowchartCanvas {
           const nearest = this.findNearestPort(mouseCanvas.x, mouseCanvas.y);
           if (nearest && nearest.dist < 35) {
             if (this.draggedPort.which === "from" && nearest.nodeId !== edge.to) {
+              if (edge.from !== nearest.nodeId) {
+                edge.waypoints = [];
+              }
               edge.from = nearest.nodeId;
               edge.fromPort = nearest.port;
             } else if (this.draggedPort.which === "to" && nearest.nodeId !== edge.from) {
+              if (edge.to !== nearest.nodeId) {
+                edge.waypoints = [];
+              }
               edge.to = nearest.nodeId;
               edge.toPort = nearest.port;
             }
@@ -750,6 +773,7 @@ class FlowchartCanvas {
   }
 
   onNodeMouseDown(e, node) {
+    if (e.button !== 0) return;
     e.stopPropagation();
 
     if (this.activeTool === "connect") {

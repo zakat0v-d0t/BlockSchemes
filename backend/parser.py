@@ -124,7 +124,6 @@ def parse_python_code(code: str) -> Dict[str, Any]:
 
                 # Ветка Да
                 then_end = process_statements(stmt.body, cond_id, depth + 1)
-                # Если в body добавились блоки, пометим первую связь как "Да"
                 for e in builder.edges:
                     if e["from"] == cond_id and not e["label"]:
                         e["label"] = "Да"
@@ -138,15 +137,26 @@ def parse_python_code(code: str) -> Dict[str, Any]:
                             e["label"] = "Нет"
                             break
                     # Точка слияния
-                    merge_id = builder.add_node("connector", "")
-                    builder.add_edge(then_end, merge_id)
-                    builder.add_edge(else_end, merge_id)
-                    current = merge_id
+                    if then_end and else_end:
+                        merge_id = builder.add_node("connector", "")
+                        builder.add_edge(then_end, merge_id)
+                        builder.add_edge(else_end, merge_id)
+                        current = merge_id
+                    elif then_end:
+                        current = then_end
+                    elif else_end:
+                        current = else_end
+                    else:
+                        current = None
+                        break
                 else:
-                    merge_id = builder.add_node("connector", "")
-                    builder.add_edge(then_end, merge_id)
-                    builder.add_edge(cond_id, merge_id, label="Нет")
-                    current = merge_id
+                    if then_end:
+                        merge_id = builder.add_node("connector", "")
+                        builder.add_edge(then_end, merge_id)
+                        builder.add_edge(cond_id, merge_id, label="Нет")
+                        current = merge_id
+                    else:
+                        current = cond_id
 
             elif isinstance(stmt, ast.For):
                 target = expr_to_str(stmt.target)
@@ -155,7 +165,8 @@ def parse_python_code(code: str) -> Dict[str, Any]:
                 builder.add_edge(current, prep_id)
 
                 body_end = process_statements(stmt.body, prep_id, depth + 1)
-                builder.add_edge(body_end, prep_id)  # возврат цикла
+                if body_end:
+                    builder.add_edge(body_end, prep_id)  # возврат цикла
                 current = prep_id
 
             elif isinstance(stmt, ast.While):
@@ -168,7 +179,8 @@ def parse_python_code(code: str) -> Dict[str, Any]:
                     if e["from"] == while_id and not e["label"]:
                         e["label"] = "Да"
                         break
-                builder.add_edge(body_end, while_id)  # возврат цикла
+                if body_end:
+                    builder.add_edge(body_end, while_id)  # возврат цикла
                 current = while_id
 
             elif isinstance(stmt, ast.Raise):
@@ -288,7 +300,10 @@ def parse_code_to_flowchart(code: str, lang: str = "auto") -> Dict[str, Any]:
     """Главная точка входа парсера."""
     if len(code) > 1_000_000:
         raise ValueError("Code too large")
-    if lang == "python" or (lang == "auto" and ("def " in code or "import " in code or ":" in code)):
+    is_python = lang == "python" or (
+        lang == "auto" and any(token in code for token in ["def ", "import ", "class ", "print(", "__main__", "elif "])
+    )
+    if is_python:
         try:
             return parse_python_code(code)
         except Exception:
