@@ -12,16 +12,19 @@ if BASE_DIR not in sys.path:
 
 VENDOR_PKG = os.path.join(BASE_DIR, "vendor", "packages")
 if os.path.exists(VENDOR_PKG) and VENDOR_PKG not in sys.path:
-    sys.path.insert(0, VENDOR_PKG)
+    sys.path.append(VENDOR_PKG)
 
+import logging
 import shutil
 import subprocess
 import tempfile
 from fastapi import FastAPI, HTTPException, Response, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, List, Any, Optional
+
+logger = logging.getLogger("gost_flowchart")
 
 from backend.parser import parse_code_to_flowchart
 from backend.renderer import (
@@ -52,7 +55,14 @@ class ExportRequest(BaseModel):
     dot: Optional[str] = None
     svg: Optional[str] = None
     format: str = "png"
-    dpi: Optional[int] = 300
+    dpi: Optional[int] = Field(default=300, ge=50, le=1200)
+
+    @field_validator("format")
+    @classmethod
+    def validate_format(cls, v: str) -> str:
+        if v.lower() not in ["png", "svg", "pdf", "dot"]:
+            raise ValueError("Недопустимый формат экспорта. Допустимы: png, svg, pdf, dot")
+        return v.lower()
 
 
 @app.post("/api/parse-code")
@@ -60,66 +70,90 @@ async def api_parse_code(req: ParseRequest):
     """Парсинг исходного кода в модель блок-схемы по ГОСТ 19.701-90."""
     if not req.code.strip():
         raise HTTPException(status_code=400, detail="Код не может быть пустым")
+    if len(req.code) > 1_000_000:
+        raise HTTPException(status_code=400, detail="Превышен размер кода")
 
-    model = parse_code_to_flowchart(req.code, req.language)
-    dot_str = build_dot_from_model(model)
-    layout = calculate_layout(dot_str)
+    try:
+        model = parse_code_to_flowchart(req.code, req.language)
+        dot_str = build_dot_from_model(model)
+        layout = calculate_layout(dot_str)
 
-    # Присваиваем нодам вычисленные координаты
-    for n in model["nodes"]:
-        nid = n["id"]
-        if nid in layout["positions"]:
-            pos = layout["positions"][nid]
-            n["x"] = pos["x"]
-            n["y"] = pos["y"]
-            n["width"] = pos["width"]
-            n["height"] = pos["height"]
+        # Присваиваем нодам вычисленные координаты
+        for n in model["nodes"]:
+            nid = n["id"]
+            if nid in layout["positions"]:
+                pos = layout["positions"][nid]
+                n["x"] = pos["x"]
+                n["y"] = pos["y"]
+                n["width"] = pos["width"]
+                n["height"] = pos["height"]
 
-    svg_preview = render_svg(dot_str)
+        svg_preview = render_svg(dot_str)
 
-    return {
-        "model": model,
-        "dot": dot_str,
-        "layout": layout,
-        "svg": svg_preview
-    }
+        return {
+            "model": model,
+            "dot": dot_str,
+            "layout": layout,
+            "svg": svg_preview
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Ошибка парсинга кода: %s", e)
+        raise HTTPException(status_code=500, detail="Ошибка парсинга кода")
 
 
 @app.post("/api/upload-file")
 async def api_upload_file(file: UploadFile = File(...)):
     """Загрузка файла с кодом через Drag & Drop или файловый диалог."""
-    contents = await file.read()
+    contents = await file.read(2 * 1024 * 1024 + 1)
+    if len(contents) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Файл слишком большой")
+
     try:
         code_str = contents.decode("utf-8")
     except UnicodeDecodeError:
         code_str = contents.decode("cp1251", errors="ignore")
 
+    if len(code_str) > 1_000_000:
+        raise HTTPException(status_code=400, detail="Превышен размер кода")
+
     filename = file.filename or "code.py"
     lang = "python" if filename.endswith(".py") else "auto"
 
-    model = parse_code_to_flowchart(code_str, lang)
-    dot_str = build_dot_from_model(model)
-    layout = calculate_layout(dot_str)
+    try:
+        model = parse_code_to_flowchart(code_str, lang)
+        dot_str = build_dot_from_model(model)
+        layout = calculate_layout(dot_str)
 
-    for n in model["nodes"]:
-        nid = n["id"]
-        if nid in layout["positions"]:
-            pos = layout["positions"][nid]
-            n["x"] = pos["x"]
-            n["y"] = pos["y"]
-            n["width"] = pos["width"]
-            n["height"] = pos["height"]
+        for n in model["nodes"]:
+            nid = n["id"]
+            if nid in layout["positions"]:
+                pos = layout["positions"][nid]
+                n["x"] = pos["x"]
+                n["y"] = pos["y"]
+                n["width"] = pos["width"]
+                n["height"] = pos["height"]
 
-    svg_preview = render_svg(dot_str)
+        svg_preview = render_svg(dot_str)
 
-    return {
-        "filename": filename,
-        "code": code_str,
-        "model": model,
-        "dot": dot_str,
-        "layout": layout,
-        "svg": svg_preview
-    }
+        return {
+            "filename": filename,
+            "code": code_str,
+            "model": model,
+            "dot": dot_str,
+            "layout": layout,
+            "svg": svg_preview
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Ошибка обработки загруженного файла: %s", e)
+        raise HTTPException(status_code=500, detail="Ошибка при обработке файла")
 
 
 @app.post("/api/render-svg")
@@ -130,7 +164,8 @@ async def api_render_svg(flowchart: FlowchartModel):
         svg = render_svg(dot_str)
         return {"svg": svg, "dot": dot_str}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Ошибка рендеринга SVG: %s", e)
+        raise HTTPException(status_code=500, detail="Ошибка рендеринга схемы")
 
 
 @app.post("/api/auto-layout")
@@ -141,7 +176,8 @@ async def api_auto_layout(flowchart: FlowchartModel):
         layout = calculate_layout(dot_str)
         return layout
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Ошибка расчета разметки: %s", e)
+        raise HTTPException(status_code=500, detail="Ошибка расчета разметки схемы")
 
 
 @app.post("/api/export")
@@ -176,7 +212,10 @@ async def api_export(req: ExportRequest):
                 return Response(
                     content=svg_data.encode("utf-8"),
                     media_type="image/svg+xml",
-                    headers={"Content-Disposition": 'attachment; filename="flowchart_gost.svg"'}
+                    headers={
+                        "Content-Disposition": 'attachment; filename="flowchart_gost.svg"',
+                        "Content-Security-Policy": "default-src 'none'"
+                    }
                 )
 
             with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False, encoding="utf-8") as f_svg:
@@ -189,28 +228,39 @@ async def api_export(req: ExportRequest):
                     if shutil.which("rsvg-convert"):
                         subprocess.run(
                             ["rsvg-convert", "-d", str(dpi), "-p", str(dpi), f_svg_path, "-o", out_file],
-                            check=True
+                            check=True,
+                            timeout=15
                         )
                     else:
-                        subprocess.run(["magick", "-density", str(dpi), f_svg_path, out_file], check=True)
+                        subprocess.run(
+                            ["magick", "-density", str(dpi), f_svg_path, out_file],
+                            check=True,
+                            timeout=15
+                        )
                 elif fmt == "pdf":
                     if shutil.which("rsvg-convert"):
                         subprocess.run(
                             ["rsvg-convert", "-f", "pdf", f_svg_path, "-o", out_file],
-                            check=True
+                            check=True,
+                            timeout=15
                         )
                     else:
-                        subprocess.run(["magick", f_svg_path, out_file], check=True)
+                        subprocess.run(
+                            ["magick", f_svg_path, out_file],
+                            check=True,
+                            timeout=15
+                        )
                 else:
-                    raise ValueError(f"Неизвестный формат экспорта: {fmt}")
+                    raise HTTPException(status_code=400, detail=f"Неизвестный формат экспорта: {fmt}")
 
                 with open(out_file, "rb") as f_out:
                     content_bytes = f_out.read()
 
+                headers = {"Content-Disposition": f'attachment; filename="flowchart_gost.{fmt}"'}
                 return Response(
                     content=content_bytes,
                     media_type=media_types.get(fmt, "application/octet-stream"),
-                    headers={"Content-Disposition": f'attachment; filename="flowchart_gost.{fmt}"'}
+                    headers=headers
                 )
             finally:
                 for p in [f_svg_path, out_file]:
@@ -227,13 +277,22 @@ async def api_export(req: ExportRequest):
 
         data = export_format(dot_str, fmt, dpi)
         media_type = media_types.get(fmt, "application/octet-stream")
+        headers = {"Content-Disposition": f'attachment; filename="flowchart_gost.{fmt}"'}
+        if fmt == "svg":
+            headers["Content-Security-Policy"] = "default-src 'none'"
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f'attachment; filename="flowchart_gost.{fmt}"'}
+            headers=headers
         )
+    except HTTPException:
+        raise
+    except subprocess.TimeoutExpired:
+        logger.error("Превышен таймаут экспорта схемы")
+        raise HTTPException(status_code=504, detail="Превышено время ожидания при экспорте схемы")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Ошибка экспорта схемы: %s", e)
+        raise HTTPException(status_code=500, detail="Ошибка при экспорте схемы")
 
 
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")

@@ -5,13 +5,15 @@ cd "$(dirname "$0")"
 
 echo "Обновление библиотек проекта..."
 if command -v uv > /dev/null; then
-  uv pip install -U fastapi uvicorn python-multipart
+  uv pip install "fastapi>=0.158.2" "uvicorn>=0.54.0" "python-multipart>=0.0.32"
+elif [ -f .venv/bin/pip ]; then
+  .venv/bin/pip install "fastapi>=0.158.2" "uvicorn>=0.54.0" "python-multipart>=0.0.32"
 else
-  .venv/bin/pip install -U fastapi uvicorn python-multipart
+  python3 -m pip install "fastapi>=0.158.2" "uvicorn>=0.54.0" "python-multipart>=0.0.32"
 fi
 
 echo "Обновление локальных wheels в vendor/wheels..."
 mkdir -p vendor/wheels
-python3 -m pip download -d vendor/wheels fastapi uvicorn python-multipart 2>/dev/null || true
+python3 -m pip download -d vendor/wheels --no-deps "fastapi>=0.158.2" "uvicorn>=0.54.0" "python-multipart>=0.0.32" 2>/dev/null || true
 
 echo "Обновление завершено успешно!"

@@ -132,21 +132,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const row = document.createElement("div");
       row.className = "edge-item-row";
-      row.innerHTML = `
-        <span class="edge-item-target">➜ ${targetName}</span>
-        <select class="edge-label-select">
-          <option value="" ${edge.label === "" ? "selected" : ""}>Без метки</option>
-          <option value="Да" ${edge.label === "Да" ? "selected" : ""}>Да</option>
-          <option value="Нет" ${edge.label === "Нет" ? "selected" : ""}>Нет</option>
-        </select>
-      `;
 
-      row.querySelector(".edge-label-select").addEventListener("change", (e) => {
+      const targetSpan = document.createElement("span");
+      targetSpan.className = "edge-item-target";
+      targetSpan.textContent = `➜ ${targetName}`;
+
+      const select = document.createElement("select");
+      select.className = "edge-label-select";
+
+      const optNone = document.createElement("option");
+      optNone.value = "";
+      optNone.textContent = "Без метки";
+      if (edge.label === "") optNone.selected = true;
+
+      const optYes = document.createElement("option");
+      optYes.value = "Да";
+      optYes.textContent = "Да";
+      if (edge.label === "Да") optYes.selected = true;
+
+      const optNo = document.createElement("option");
+      optNo.value = "Нет";
+      optNo.textContent = "Нет";
+      if (edge.label === "Нет") optNo.selected = true;
+
+      select.appendChild(optNone);
+      select.appendChild(optYes);
+      select.appendChild(optNo);
+
+      select.addEventListener("change", (e) => {
         edge.label = e.target.value;
         canvas.pushState();
         canvas.render();
       });
 
+      row.appendChild(targetSpan);
+      row.appendChild(select);
       outgoingEdgesList.appendChild(row);
     });
   }
@@ -317,6 +337,10 @@ document.addEventListener("DOMContentLoaded", () => {
   jsonFileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Размер файла превышает допустимый лимит (5 МБ)");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
@@ -410,6 +434,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   function handleCodeFile(file) {
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Размер файла превышает допустимый лимит (5 МБ)");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       codeInput.value = e.target.result;

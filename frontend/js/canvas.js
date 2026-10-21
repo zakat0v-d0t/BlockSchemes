@@ -105,19 +105,19 @@ class FlowchartCanvas {
 
   setData(model, recordHistory = true) {
     this.nodes = (model.nodes || []).map(n => ({
-      id: n.id,
-      type: n.type || "process",
-      text: n.text || "",
-      x: typeof n.x === "number" ? n.x : 100,
-      y: typeof n.y === "number" ? n.y : 100,
-      width: n.width || 150,
-      height: n.height || 55
+      id: String(n.id || ""),
+      type: String(n.type || "process"),
+      text: String(n.text || ""),
+      x: Number.isFinite(Number(n.x)) ? Number(n.x) : 100,
+      y: Number.isFinite(Number(n.y)) ? Number(n.y) : 100,
+      width: Number.isFinite(Number(n.width)) && Number(n.width) > 0 ? Number(n.width) : 150,
+      height: Number.isFinite(Number(n.height)) && Number(n.height) > 0 ? Number(n.height) : 55
     }));
 
     this.edges = (model.edges || []).map(e => ({
-      from: e.from,
-      to: e.to,
-      label: e.label || "",
+      from: String(e.from || ""),
+      to: String(e.to || ""),
+      label: String(e.label || ""),
       fromPort: e.fromPort || null,
       toPort: e.toPort || null
     }));
@@ -181,11 +181,16 @@ class FlowchartCanvas {
       edgesSvg += `<path d="${pathData}" class="edge-line" fill="none" stroke="#000000" stroke-width="1.5" marker-end="url(#arrowhead)" />\n`;
 
       if (edge.label) {
+        const escapedLabel = String(edge.label)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
         const midX = Math.round((p1.x + p2.x) / 2 + 10);
         const midY = Math.round((p1.y + p2.y) / 2 - 6);
         edgesSvg += `
           <rect x="${midX - 18}" y="${midY - 11}" width="36" height="16" rx="3" class="edge-label-bg" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" />
-          <text x="${midX}" y="${midY + 1}" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', Arial, sans-serif" font-size="11px" fill="#000000">${edge.label}</text>
+          <text x="${midX}" y="${midY + 1}" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', Arial, sans-serif" font-size="11px" fill="#000000">${escapedLabel}</text>
         `;
       }
     });

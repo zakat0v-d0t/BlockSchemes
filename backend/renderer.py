@@ -29,11 +29,12 @@ def build_dot_from_model(model: Dict[str, Any]) -> str:
     ]
 
     for n in nodes:
-        nid = n["id"]
+        raw_id = str(n.get("id", ""))
+        nid = re.sub(r"[^a-zA-Z0-9_]", "_", raw_id) or "node"
         ntype = n.get("type", "process")
-        raw_text = n.get("text", "")
-        # Экранирование для DOT
-        safe_text = raw_text.replace('"', '\\"').replace('\n', '\\n')
+        raw_text = str(n.get("text", ""))
+        # Экранирование для DOT: сначала бэкслеши, затем кавычки и переводы строк
+        safe_text = raw_text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
 
         w_val = n.get("width", 2.0)
         h_val = n.get("height", 0.7)
@@ -54,7 +55,14 @@ def build_dot_from_model(model: Dict[str, Any]) -> str:
             lines.append(f'    {nid} [shape=parallelogram, label="{safe_text}", width={w}, height={h}];')
         elif ntype == "subroutine":
             # Предопределенный процесс (двойные боковые линии)
-            html_text = raw_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+            html_text = (
+                raw_text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+                .replace("'", "&#39;")
+                .replace("\n", "<br/>")
+            )
             lines.append(f'    {nid} [shape=none, margin=0, label=<')
             lines.append('        <table border="1" cellborder="0" cellspacing="0" cellpadding="8">')
             lines.append(f'            <tr><td sides="R" width="6"></td><td>{html_text}</td><td sides="L" width="6"></td></tr>')
@@ -73,18 +81,19 @@ def build_dot_from_model(model: Dict[str, Any]) -> str:
 
     lines.append('')
     for e in edges:
-        from_id = e["from"]
-        to_id = e["to"]
-        label = e.get("label", "").strip()
-        from_port = e.get("fromPort")
-        to_port = e.get("toPort")
+        from_id = re.sub(r"[^a-zA-Z0-9_]", "_", str(e.get("from", "")))
+        to_id = re.sub(r"[^a-zA-Z0-9_]", "_", str(e.get("to", "")))
+        label = str(e.get("label", "")).strip()
+        from_port = re.sub(r"[^a-zA-Z0-9_]", "_", str(e["fromPort"])) if e.get("fromPort") else None
+        to_port = re.sub(r"[^a-zA-Z0-9_]", "_", str(e["toPort"])) if e.get("toPort") else None
 
         src = f"{from_id}:{from_port}" if from_port else from_id
         dst = f"{to_id}:{to_port}" if to_port else to_id
 
         attrs = []
         if label:
-            attrs.append(f'xlabel="{label} "')
+            safe_label = label.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+            attrs.append(f'xlabel="{safe_label} "')
 
         attr_str = f" [{', '.join(attrs)}]" if attrs else ""
         lines.append(f'    {src} -> {dst}{attr_str};')
@@ -239,7 +248,7 @@ def fix_penetrating_arrows(svg: str) -> str:
 
 def render_svg(dot_str: str) -> str:
     """Рендерит DOT в кастомизированный ГОСТ SVG."""
-    res = subprocess.run(["dot", "-Tsvg"], input=dot_str, text=True, capture_output=True, check=True)
+    res = subprocess.run(["dot", "-Tsvg"], input=dot_str, text=True, capture_output=True, check=True, timeout=10)
     svg = res.stdout
     svg = patch_gost_document_wave(svg)
     svg = fix_penetrating_arrows(svg)
@@ -251,7 +260,7 @@ def calculate_layout(dot_str: str) -> Dict[str, Any]:
     Вычисляет идеальное автовыравнивание узлов по ГОСТу с помощью dot -Tjson
     и возвращает координаты x, y для редактора на фронтенде.
     """
-    res = subprocess.run(["dot", "-Tjson"], input=dot_str, text=True, capture_output=True, check=True)
+    res = subprocess.run(["dot", "-Tjson"], input=dot_str, text=True, capture_output=True, check=True, timeout=10)
     raw = json.loads(res.stdout)
 
     bb = [float(v) for v in raw.get("bb", "0,0,800,600").split(",")]
@@ -283,11 +292,13 @@ def export_format(dot_str: str, fmt: str, dpi: int = 300) -> bytes:
     if fmt == "dot":
         return dot_str.encode("utf-8")
 
+    dpi = max(50, min(int(dpi), 1200))
+
     svg = render_svg(dot_str)
     if fmt == "svg":
         return svg.encode("utf-8")
 
-    with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False) as f_svg:
+    with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False, encoding="utf-8") as f_svg:
         f_svg.write(svg)
         f_svg_path = f_svg.name
 
@@ -297,18 +308,21 @@ def export_format(dot_str: str, fmt: str, dpi: int = 300) -> bytes:
             if shutil.which("rsvg-convert"):
                 subprocess.run(
                     ["rsvg-convert", "-d", str(dpi), "-p", str(dpi), f_svg_path, "-o", out_file],
-                    check=True
+                    check=True,
+                    timeout=15
                 )
             else:
-                subprocess.run(["magick", "-density", str(dpi), f_svg_path, out_file], check=True)
+                subprocess.run(["magick", "-density", str(dpi), f_svg_path, out_file], check=True, timeout=15)
         elif fmt == "pdf":
             if shutil.which("rsvg-convert"):
                 subprocess.run(
                     ["rsvg-convert", "-f", "pdf", f_svg_path, "-o", out_file],
-                    check=True
+                    check=True,
+                    timeout=15
                 )
             else:
-                subprocess.run(["dot", "-Tpdf"], input=dot_str, text=True, stdout=open(out_file, "wb"))
+                with open(out_file, "wb") as f_out:
+                    subprocess.run(["dot", "-Tpdf"], input=dot_str, text=True, stdout=f_out, check=True, timeout=15)
         else:
             raise ValueError(f"Неизвестный формат экспорта: {fmt}")
 

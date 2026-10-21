@@ -75,7 +75,9 @@ def parse_python_code(code: str) -> Dict[str, Any]:
         except Exception:
             return "выражение"
 
-    def process_statements(stmts: List[ast.AST], prev_id: str) -> str:
+    def process_statements(stmts: List[ast.AST], prev_id: str, depth: int = 0) -> str:
+        if depth > 200:
+            return prev_id
         current = prev_id
         for stmt in stmts:
             if isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
@@ -121,7 +123,7 @@ def parse_python_code(code: str) -> Dict[str, Any]:
                 builder.add_edge(current, cond_id)
 
                 # Ветка Да
-                then_end = process_statements(stmt.body, cond_id)
+                then_end = process_statements(stmt.body, cond_id, depth + 1)
                 # Если в body добавились блоки, пометим первую связь как "Да"
                 for e in builder.edges:
                     if e["from"] == cond_id and not e["label"]:
@@ -130,7 +132,7 @@ def parse_python_code(code: str) -> Dict[str, Any]:
 
                 # Ветка Нет
                 if stmt.orelse:
-                    else_end = process_statements(stmt.orelse, cond_id)
+                    else_end = process_statements(stmt.orelse, cond_id, depth + 1)
                     for e in builder.edges:
                         if e["from"] == cond_id and not e["label"]:
                             e["label"] = "Нет"
@@ -152,7 +154,7 @@ def parse_python_code(code: str) -> Dict[str, Any]:
                 prep_id = builder.add_node("preparation", f"Для каждого {target} в {iter_str}")
                 builder.add_edge(current, prep_id)
 
-                body_end = process_statements(stmt.body, prep_id)
+                body_end = process_statements(stmt.body, prep_id, depth + 1)
                 builder.add_edge(body_end, prep_id)  # возврат цикла
                 current = prep_id
 
@@ -161,7 +163,7 @@ def parse_python_code(code: str) -> Dict[str, Any]:
                 while_id = builder.add_node("decision", cond_text)
                 builder.add_edge(current, while_id)
 
-                body_end = process_statements(stmt.body, while_id)
+                body_end = process_statements(stmt.body, while_id, depth + 1)
                 for e in builder.edges:
                     if e["from"] == while_id and not e["label"]:
                         e["label"] = "Да"
@@ -284,6 +286,8 @@ def parse_generic_code(code: str) -> Dict[str, Any]:
 
 def parse_code_to_flowchart(code: str, lang: str = "auto") -> Dict[str, Any]:
     """Главная точка входа парсера."""
+    if len(code) > 1_000_000:
+        raise ValueError("Code too large")
     if lang == "python" or (lang == "auto" and ("def " in code or "import " in code or ":" in code)):
         try:
             return parse_python_code(code)
