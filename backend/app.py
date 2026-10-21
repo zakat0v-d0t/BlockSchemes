@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from fastapi import FastAPI, HTTPException, Response, UploadFile, File
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 
@@ -227,6 +227,12 @@ async def api_export(req: ExportRequest):
 
 
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    fav_path = os.path.join(FRONTEND_DIR, "favicon.svg")
+    return FileResponse(fav_path, media_type="image/svg+xml")
 
 
 @app.get("/")
