@@ -1,5 +1,6 @@
 /**
  * canvas.js - Интерактивный редактор холста блок-схем.
+ * Поддерживает Undo/Redo (Ctrl+Z), выделение и редактирование узлов и стрелок.
  */
 
 class FlowchartCanvas {
@@ -12,8 +13,10 @@ class FlowchartCanvas {
     this.nodes = [];
     this.edges = [];
 
+    // Выделение
     this.selectedNodeId = null;
-    this.selectedEdge = null;
+    this.selectedEdgeIndex = null;
+
     this.activeTool = "select"; // 'select', 'connect', 'delete'
     this.connectSourceId = null;
 
@@ -27,16 +30,80 @@ class FlowchartCanvas {
     // Dragging узлов
     this.draggedNode = null;
     this.dragOffset = { x: 0, y: 0 };
+    this.dragStartedPos = null;
+
+    // Стек истории (Undo / Redo)
+    this.history = [];
+    this.historyIndex = -1;
+    this.maxHistory = 50;
 
     // Callbacks
     this.onSelectNode = options.onSelectNode || (() => {});
+    this.onSelectEdge = options.onSelectEdge || (() => {});
     this.onChange = options.onChange || (() => {});
 
     this.initEvents();
     this.updateViewportTransform();
   }
 
-  setData(model) {
+  // Сохранение снимка состояния для Ctrl+Z
+  pushState() {
+    // Если мы отменяли и делаем новое действие, отсекаем ветку вперед
+    if (this.historyIndex < this.history.length - 1) {
+      this.history = this.history.slice(0, this.historyIndex + 1);
+    }
+
+    const snapshot = JSON.stringify({
+      nodes: this.nodes,
+      edges: this.edges
+    });
+
+    // Избегаем дублирования идентичных состояний
+    if (this.history.length > 0 && this.history[this.historyIndex] === snapshot) {
+      return;
+    }
+
+    this.history.push(snapshot);
+    if (this.history.length > this.maxHistory) {
+      this.history.shift();
+    } else {
+      this.historyIndex++;
+    }
+
+    this.onChange();
+  }
+
+  undo() {
+    if (this.historyIndex > 0) {
+      this.historyIndex--;
+      const snapshot = JSON.parse(this.history[this.historyIndex]);
+      this.nodes = snapshot.nodes || [];
+      this.edges = snapshot.edges || [];
+      this.selectedNodeId = null;
+      this.selectedEdgeIndex = null;
+      this.onSelectNode(null);
+      this.onSelectEdge(null, null);
+      this.render();
+      this.onChange();
+    }
+  }
+
+  redo() {
+    if (this.historyIndex < this.history.length - 1) {
+      this.historyIndex++;
+      const snapshot = JSON.parse(this.history[this.historyIndex]);
+      this.nodes = snapshot.nodes || [];
+      this.edges = snapshot.edges || [];
+      this.selectedNodeId = null;
+      this.selectedEdgeIndex = null;
+      this.onSelectNode(null);
+      this.onSelectEdge(null, null);
+      this.render();
+      this.onChange();
+    }
+  }
+
+  setData(model, recordHistory = true) {
     this.nodes = (model.nodes || []).map(n => ({
       id: n.id,
       type: n.type || "process",
@@ -55,6 +122,14 @@ class FlowchartCanvas {
       toPort: e.toPort || null
     }));
 
+    this.selectedNodeId = null;
+    this.selectedEdgeIndex = null;
+    this.onSelectNode(null);
+    this.onSelectEdge(null, null);
+
+    if (recordHistory) {
+      this.pushState();
+    }
     this.render();
   }
 
@@ -97,8 +172,8 @@ class FlowchartCanvas {
 
     this.nodes.push(node);
     this.selectNode(id);
+    this.pushState();
     this.render();
-    this.onChange();
     return node;
   }
 
@@ -109,15 +184,30 @@ class FlowchartCanvas {
       this.edges = this.edges.filter(e => e.from !== id && e.to !== id);
       this.selectedNodeId = null;
       this.onSelectNode(null);
+      this.pushState();
       this.render();
-      this.onChange();
+    } else if (this.selectedEdgeIndex !== null) {
+      this.deleteEdge(this.selectedEdgeIndex);
     }
   }
 
   selectNode(id) {
     this.selectedNodeId = id;
+    this.selectedEdgeIndex = null;
+    this.onSelectEdge(null, null);
+
     const node = this.nodes.find(n => n.id === id) || null;
     this.onSelectNode(node);
+    this.render();
+  }
+
+  selectEdge(index) {
+    this.selectedEdgeIndex = index;
+    this.selectedNodeId = null;
+    this.onSelectNode(null);
+
+    const edge = this.edges[index] || null;
+    this.onSelectEdge(edge, index);
     this.render();
   }
 
@@ -125,8 +215,42 @@ class FlowchartCanvas {
     const node = this.nodes.find(n => n.id === id);
     if (!node) return;
     Object.assign(node, props);
+    this.pushState();
     this.render();
-    this.onChange();
+  }
+
+  updateEdge(index, props) {
+    const edge = this.edges[index];
+    if (!edge) return;
+    Object.assign(edge, props);
+    this.pushState();
+    this.render();
+  }
+
+  flipEdge(index) {
+    const edge = this.edges[index];
+    if (!edge) return;
+    const temp = edge.from;
+    edge.from = edge.to;
+    edge.to = temp;
+
+    const tempPort = edge.fromPort;
+    edge.fromPort = edge.toPort;
+    edge.toPort = tempPort;
+
+    this.pushState();
+    this.render();
+    this.onSelectEdge(edge, index);
+  }
+
+  deleteEdge(index) {
+    if (index >= 0 && index < this.edges.length) {
+      this.edges.splice(index, 1);
+      this.selectedEdgeIndex = null;
+      this.onSelectEdge(null, null);
+      this.pushState();
+      this.render();
+    }
   }
 
   render() {
@@ -146,7 +270,6 @@ class FlowchartCanvas {
       const textSvg = GostShapes.renderTextSvg(node);
       g.innerHTML = shapeSvg + textSvg;
 
-      // События узла
       g.addEventListener("mousedown", (e) => this.onNodeMouseDown(e, node));
       g.addEventListener("dblclick", (e) => this.onNodeDblClick(e, node));
 
@@ -171,32 +294,42 @@ class FlowchartCanvas {
       if (edge.fromPort && fromPorts[edge.fromPort]) p1 = fromPorts[edge.fromPort];
       if (edge.toPort && toPorts[edge.toPort]) p2 = toPorts[edge.toPort];
 
-      // Если целевой узел выше исходного, это обратная петля цикла
-      if (toNode.y < fromNode.y) {
+      // Авто-обратная петля цикла, если порты не заданы явно
+      if (!edge.fromPort && !edge.toPort && toNode.y < fromNode.y) {
         p1 = fromPorts.w;
         p2 = toPorts.w;
       }
 
       const pathData = GostShapes.buildOrthoPath(p1, p2);
+      const isSelected = this.selectedEdgeIndex === idx;
 
       const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      g.setAttribute("class", "gost-edge");
+      g.setAttribute("class", `gost-edge ${isSelected ? "selected" : ""}`);
+      g.setAttribute("data-edge-index", idx);
 
+      // Невидимая широкая полоса для удобного клика мышкой по стрелке
+      const hitbox = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      hitbox.setAttribute("d", pathData);
+      hitbox.setAttribute("class", "edge-hitbox");
+      g.appendChild(hitbox);
+
+      // Видимая линия стрелки
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", pathData);
-      path.setAttribute("marker-end", "url(#arrowhead)");
+      path.setAttribute("class", "edge-line");
+      path.setAttribute("marker-end", isSelected ? "url(#arrowhead-selected)" : "url(#arrowhead)");
       g.appendChild(path);
 
-      // Метка на стрелке ("Да", "Нет")
+      // Метка ветки ("Да", "Нет" и др.)
       if (edge.label) {
         const midX = (p1.x + p2.x) / 2 + 10;
         const midY = (p1.y + p2.y) / 2 - 6;
 
         const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         bgRect.setAttribute("class", "edge-label-bg");
-        bgRect.setAttribute("x", midX - 16);
+        bgRect.setAttribute("x", midX - 18);
         bgRect.setAttribute("y", midY - 11);
-        bgRect.setAttribute("width", 32);
+        bgRect.setAttribute("width", 36);
         bgRect.setAttribute("height", 16);
         bgRect.setAttribute("rx", 3);
         g.appendChild(bgRect);
@@ -209,11 +342,28 @@ class FlowchartCanvas {
         g.appendChild(text);
       }
 
+      // Клик по стрелке выделяет ее
+      g.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        this.selectEdge(idx);
+      });
+
+      // Двойной клик по стрелке — быстрое редактирование метки
+      g.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        const newLabel = prompt("Подпись ветки (например, Да, Нет):", edge.label || "");
+        if (newLabel !== null) {
+          edge.label = newLabel.trim();
+          this.pushState();
+          this.render();
+          this.onSelectEdge(edge, idx);
+        }
+      });
+
       this.edgesLayer.appendChild(g);
     });
   }
 
-  // Обработка событий холста
   initEvents() {
     // Zoom колесиком
     this.svg.addEventListener("wheel", (e) => {
@@ -222,12 +372,13 @@ class FlowchartCanvas {
       this.zoom(zoomFactor, e.clientX, e.clientY);
     });
 
-    // Pan холста
+    // Pan холста и сброс выделения при клике в пустоту
     this.svg.addEventListener("mousedown", (e) => {
       if (e.target === this.svg || e.target.tagName === "rect") {
         this.isPanning = true;
         this.startPan = { x: e.clientX - this.panX, y: e.clientY - this.panY };
         this.selectNode(null);
+        this.selectEdge(null);
       }
     });
 
@@ -247,17 +398,39 @@ class FlowchartCanvas {
     window.addEventListener("mouseup", () => {
       if (this.isPanning) this.isPanning = false;
       if (this.draggedNode) {
+        // Если координаты изменились, записываем в историю
+        if (
+          !this.dragStartedPos ||
+          this.dragStartedPos.x !== this.draggedNode.x ||
+          this.dragStartedPos.y !== this.draggedNode.y
+        ) {
+          this.pushState();
+        }
         this.draggedNode = null;
-        this.onChange();
+        this.dragStartedPos = null;
       }
     });
 
-    // Клавиатурные сокращения
+    // Клавиатурные сокращения: Ctrl+Z (Undo), Ctrl+Y (Redo), Delete (Удаление)
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") {
-          this.deleteSelected();
+      const isInput = document.activeElement && (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA");
+      if (isInput) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      if (ctrlOrCmd && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          this.redo();
+        } else {
+          this.undo();
         }
+      } else if (ctrlOrCmd && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        this.redo();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        this.deleteSelected();
       }
     });
   }
@@ -270,16 +443,17 @@ class FlowchartCanvas {
         this.connectSourceId = node.id;
         this.selectNode(node.id);
       } else if (this.connectSourceId !== node.id) {
-        // Создаем связь
         const label = prompt("Подпись ветки (например, 'Да', 'Нет' или оставьте пустым):", "");
         this.edges.push({
           from: this.connectSourceId,
           to: node.id,
-          label: label !== null ? label : ""
+          label: label !== null ? label.trim() : "",
+          fromPort: null,
+          toPort: null
         });
         this.connectSourceId = null;
+        this.pushState();
         this.render();
-        this.onChange();
       }
       return;
     }
@@ -290,9 +464,10 @@ class FlowchartCanvas {
       return;
     }
 
-    // Режим выбора и перетаскивания
+    // Режим выбора и перетаскивания узла
     this.selectNode(node.id);
     this.draggedNode = node;
+    this.dragStartedPos = { x: node.x, y: node.y };
     const mouseCanvas = this.clientToCanvas(e.clientX, e.clientY);
     this.dragOffset = {
       x: mouseCanvas.x - node.x,
@@ -316,10 +491,13 @@ class FlowchartCanvas {
     textarea.focus();
 
     const saveAndClose = () => {
-      node.text = textarea.value.trim();
+      const newText = textarea.value.trim();
+      if (newText !== node.text) {
+        node.text = newText;
+        this.pushState();
+      }
       editor.style.display = "none";
       this.render();
-      this.onChange();
       this.onSelectNode(node);
       textarea.removeEventListener("blur", saveAndClose);
     };

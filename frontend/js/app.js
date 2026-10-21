@@ -5,31 +5,116 @@
 document.addEventListener("DOMContentLoaded", () => {
   const svgEl = document.getElementById("flowchart-svg");
   const inspector = document.getElementById("right-inspector");
-  const inspectorContent = document.getElementById("inspector-content");
+  const inspectorNodeContent = document.getElementById("inspector-content");
+  const inspectorEdgeContent = document.getElementById("inspector-edge-content");
   const inspectorEmpty = document.querySelector(".empty-state");
+
+  // Элементы узла
   const blockTypeSelect = document.getElementById("block-type");
   const blockTextInput = document.getElementById("block-text");
   const outgoingEdgesList = document.getElementById("outgoing-edges-list");
 
+  // Элементы стрелки
+  const edgeInfoTitle = document.getElementById("edge-info-title");
+  const edgeLabelInput = document.getElementById("edge-label-input");
+  const edgeFromPort = document.getElementById("edge-from-port");
+  const edgeToPort = document.getElementById("edge-to-port");
+
   let currentSelectedNode = null;
+  let currentSelectedEdgeIndex = null;
 
   // Инициализация холста
   const canvas = new FlowchartCanvas(svgEl, {
     onSelectNode: (node) => {
       currentSelectedNode = node;
+      currentSelectedEdgeIndex = null;
       if (node) {
         inspectorEmpty.style.display = "none";
-        inspectorContent.style.display = "block";
+        inspectorEdgeContent.style.display = "none";
+        inspectorNodeContent.style.display = "block";
         blockTypeSelect.value = node.type || "process";
         blockTextInput.value = (node.text || "").replace(/\\n/g, "\n");
         renderOutgoingEdges(node);
-      } else {
+      } else if (currentSelectedEdgeIndex === null) {
         inspectorEmpty.style.display = "block";
-        inspectorContent.style.display = "none";
+        inspectorNodeContent.style.display = "none";
+        inspectorEdgeContent.style.display = "none";
       }
     },
+
+    onSelectEdge: (edge, index) => {
+      currentSelectedEdgeIndex = index;
+      currentSelectedNode = null;
+      if (edge !== null && index !== null) {
+        inspectorEmpty.style.display = "none";
+        inspectorNodeContent.style.display = "none";
+        inspectorEdgeContent.style.display = "block";
+
+        const fromNode = canvas.nodes.find(n => n.id === edge.from);
+        const toNode = canvas.nodes.find(n => n.id === edge.to);
+        const fromTitle = fromNode ? fromNode.text.split("\n")[0].substring(0, 14) : edge.from;
+        const toTitle = toNode ? toNode.text.split("\n")[0].substring(0, 14) : edge.to;
+
+        edgeInfoTitle.textContent = `${fromTitle} ➔ ${toTitle}`;
+        edgeLabelInput.value = edge.label || "";
+        edgeFromPort.value = edge.fromPort || "";
+        edgeToPort.value = edge.toPort || "";
+      } else if (currentSelectedNode === null) {
+        inspectorEmpty.style.display = "block";
+        inspectorNodeContent.style.display = "none";
+        inspectorEdgeContent.style.display = "none";
+      }
+    },
+
     onChange: () => {
-      // При изменениях можно сохранять состояние
+      // Состояние изменилось
+    }
+  });
+
+  // Кнопки Undo / Redo
+  const btnUndo = document.getElementById("btn-undo");
+  const btnRedo = document.getElementById("btn-redo");
+  if (btnUndo) btnUndo.addEventListener("click", () => canvas.undo());
+  if (btnRedo) btnRedo.addEventListener("click", () => canvas.redo());
+
+  // Инспектор стрелок
+  edgeLabelInput.addEventListener("input", (e) => {
+    if (currentSelectedEdgeIndex !== null) {
+      canvas.updateEdge(currentSelectedEdgeIndex, { label: e.target.value.trim() });
+    }
+  });
+
+  document.querySelectorAll(".edge-quick-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (currentSelectedEdgeIndex !== null) {
+        const val = btn.getAttribute("data-label");
+        edgeLabelInput.value = val;
+        canvas.updateEdge(currentSelectedEdgeIndex, { label: val });
+      }
+    });
+  });
+
+  edgeFromPort.addEventListener("change", (e) => {
+    if (currentSelectedEdgeIndex !== null) {
+      canvas.updateEdge(currentSelectedEdgeIndex, { fromPort: e.target.value || null });
+    }
+  });
+
+  edgeToPort.addEventListener("change", (e) => {
+    if (currentSelectedEdgeIndex !== null) {
+      canvas.updateEdge(currentSelectedEdgeIndex, { toPort: e.target.value || null });
+    }
+  });
+
+  document.getElementById("btn-flip-edge").addEventListener("click", () => {
+    if (currentSelectedEdgeIndex !== null) {
+      canvas.flipEdge(currentSelectedEdgeIndex);
+    }
+  });
+
+  document.getElementById("btn-delete-edge").addEventListener("click", () => {
+    if (currentSelectedEdgeIndex !== null) {
+      canvas.deleteEdge(currentSelectedEdgeIndex);
     }
   });
 
@@ -41,7 +126,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    edges.forEach((edge, i) => {
+    edges.forEach((edge) => {
       const targetNode = canvas.nodes.find(n => n.id === edge.to);
       const targetName = targetNode ? (targetNode.text.split("\n")[0].substring(0, 15) || targetNode.id) : edge.to;
 
@@ -58,6 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       row.querySelector(".edge-label-select").addEventListener("change", (e) => {
         edge.label = e.target.value;
+        canvas.pushState();
         canvas.render();
       });
 
@@ -84,6 +170,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("btn-close-inspector").addEventListener("click", () => {
     canvas.selectNode(null);
+    canvas.selectEdge(null);
   });
 
   // Палитра инструментов
@@ -130,7 +217,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
 
-      canvas.setData(data);
+      canvas.setData(data, true);
       canvas.resetZoom();
     } catch (err) {
       alert("Не удалось выполнить автовыравнивание: " + err.message);
@@ -190,7 +277,7 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.onload = (evt) => {
       try {
         const loaded = JSON.parse(evt.target.result);
-        canvas.setData(loaded);
+        canvas.setData(loaded, true);
         canvas.resetZoom();
       } catch (err) {
         alert("Ошибка чтения JSON: " + err.message);
@@ -247,7 +334,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return res`
   };
 
-  document.querySelectorAll(".badge-btn").forEach(btn => {
+  document.querySelectorAll(".badge-btn[data-example]").forEach(btn => {
     btn.addEventListener("click", () => {
       const ex = btn.getAttribute("data-example");
       if (codeExamples[ex]) {
@@ -307,7 +394,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const res = await resp.json();
-      canvas.setData(res.model);
+      canvas.setData(res.model, true);
       canvas.resetZoom();
       modalImport.classList.remove("active");
     } catch (err) {
@@ -346,7 +433,6 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({ nodes: [], edges: [], dot: dotStr })
       });
       const layout = await resp.json();
-      // Перезагрузка схемы из DOT пока закроем модалку
       modalDot.classList.remove("active");
     } catch (err) {
       alert("Ошибка применения DOT: " + err.message);

@@ -25,6 +25,14 @@
       </div>
 
       <div class="header-center">
+        <button id="btn-undo" class="btn btn-outline" title="Отменить (Ctrl+Z)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          Отмена
+        </button>
+        <button id="btn-redo" class="btn btn-outline" title="Повторить (Ctrl+Y)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
+          Повтор
+        </button>
         <button id="btn-import-code" class="btn btn-primary" title="Загрузить или вставить код программы">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           Сгенерировать из кода
@@ -140,6 +148,9 @@
             <marker id="arrowhead" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto">
               <polygon points="0 0, 9 3, 0 6" fill="#000000" />
             </marker>
+            <marker id="arrowhead-selected" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 9 3, 0 6" fill="#2563eb" />
+            </marker>
             <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
               <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f0f2f5" stroke-width="1"/>
             </pattern>
@@ -166,6 +177,7 @@
         <div class="inspector-body" id="inspector-body">
           <p class="empty-state">Выберите блок на схеме для редактирования его параметров</p>
 
+          <!-- Свойства выбранного блока -->
           <div id="inspector-content" style="display: none;">
             <div class="form-group">
               <label for="block-type">Тип символа (ГОСТ 19.701-90):</label>
@@ -195,6 +207,54 @@
             <div class="inspector-actions">
               <button id="btn-delete-selected" class="btn btn-danger-outline btn-block">
                 🗑️ Удалить блок
+              </button>
+            </div>
+          </div>
+
+          <!-- Свойства выбранной стрелки (связи) -->
+          <div id="inspector-edge-content" style="display: none;">
+            <div class="edge-info-badge">
+              <span id="edge-info-title">Стрелка связи</span>
+            </div>
+
+            <div class="form-group">
+              <label for="edge-label-input">Метка ветки (текст):</label>
+              <div class="edge-label-quick-picks">
+                <button type="button" class="badge-btn edge-quick-btn" data-label="Да">Да</button>
+                <button type="button" class="badge-btn edge-quick-btn" data-label="Нет">Нет</button>
+                <button type="button" class="badge-btn edge-quick-btn" data-label="">Очистить</button>
+              </div>
+              <input type="text" id="edge-label-input" class="form-control" placeholder="Например: Да, Нет, i < N..." />
+            </div>
+
+            <div class="form-group">
+              <label for="edge-from-port">Точка исхода (порт источника):</label>
+              <select id="edge-from-port" class="form-control">
+                <option value="">Авто (по стандарту)</option>
+                <option value="s">Снизу (:s)</option>
+                <option value="e">Справа (:e)</option>
+                <option value="w">Слева (:w)</option>
+                <option value="n">Сверху (:n)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="edge-to-port">Точка входа (порт приемника):</label>
+              <select id="edge-to-port" class="form-control">
+                <option value="">Авто (по стандарту)</option>
+                <option value="n">Сверху (:n)</option>
+                <option value="w">Слева (:w)</option>
+                <option value="e">Справа (:e)</option>
+                <option value="s">Снизу (:s)</option>
+              </select>
+            </div>
+
+            <div class="inspector-actions">
+              <button id="btn-flip-edge" class="btn btn-secondary btn-block" style="margin-bottom: 8px;">
+                ⇄ Поменять направление
+              </button>
+              <button id="btn-delete-edge" class="btn btn-danger-outline btn-block">
+                🗑️ Удалить стрелку
               </button>
             </div>
           </div>
