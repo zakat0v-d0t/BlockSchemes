@@ -106,6 +106,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  const btnResetEdgeRoute = document.getElementById("btn-reset-edge-route");
+  if (btnResetEdgeRoute) {
+    btnResetEdgeRoute.addEventListener("click", () => {
+      if (currentSelectedEdgeIndex !== null) {
+        canvas.resetEdgeRoute(currentSelectedEdgeIndex);
+      }
+    });
+  }
+
   document.getElementById("btn-flip-edge").addEventListener("click", () => {
     if (currentSelectedEdgeIndex !== null) {
       canvas.flipEdge(currentSelectedEdgeIndex);

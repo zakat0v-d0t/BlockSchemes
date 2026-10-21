@@ -9,6 +9,7 @@ class FlowchartCanvas {
     this.viewport = svgElement.querySelector("#viewport-group");
     this.nodesLayer = svgElement.querySelector("#nodes-layer");
     this.edgesLayer = svgElement.querySelector("#edges-layer");
+    this.handlesLayer = svgElement.querySelector("#handles-layer") || this.edgesLayer;
 
     this.nodes = [];
     this.edges = [];
@@ -31,6 +32,10 @@ class FlowchartCanvas {
     this.draggedNode = null;
     this.dragOffset = { x: 0, y: 0 };
     this.dragStartedPos = null;
+
+    // Dragging точек стрелок (изломов и портов)
+    this.draggedWaypoint = null;
+    this.draggedPort = null;
 
     // Стек истории (Undo / Redo)
     this.history = [];
@@ -119,7 +124,10 @@ class FlowchartCanvas {
       to: String(e.to || ""),
       label: String(e.label || ""),
       fromPort: e.fromPort || null,
-      toPort: e.toPort || null
+      toPort: e.toPort || null,
+      waypoints: Array.isArray(e.waypoints)
+        ? e.waypoints.map(p => ({ x: Number(p.x), y: Number(p.y) }))
+        : []
     }));
 
     this.selectedNodeId = null;
@@ -131,6 +139,32 @@ class FlowchartCanvas {
       this.pushState();
     }
     this.render();
+  }
+
+  // Расчет всех точек полилинии стрелки (порты + кастомные изломы)
+  getEdgePoints(edge) {
+    const fromNode = this.nodes.find(n => n.id === edge.from);
+    const toNode = this.nodes.find(n => n.id === edge.to);
+    if (!fromNode || !toNode) return [];
+
+    const fromPorts = GostShapes.getPorts(fromNode.x, fromNode.y, fromNode.width, fromNode.height);
+    const toPorts = GostShapes.getPorts(toNode.x, toNode.y, toNode.width, toNode.height);
+
+    let p1 = fromPorts.s;
+    let p2 = toPorts.n;
+
+    if (edge.fromPort && fromPorts[edge.fromPort]) p1 = fromPorts[edge.fromPort];
+    if (edge.toPort && toPorts[edge.toPort]) p2 = toPorts[edge.toPort];
+
+    if (!edge.fromPort && !edge.toPort && toNode.y < fromNode.y) {
+      p1 = fromPorts.w;
+      p2 = toPorts.w;
+    }
+
+    if (edge.waypoints && edge.waypoints.length > 0) {
+      return [p1, ...edge.waypoints, p2];
+    }
+    return GostShapes.getOrthoPoints(p1, p2);
   }
 
   // Генерация чистого автономного SVG со всеми узлами и стрелками в текущих координатах пользователя
@@ -149,35 +183,30 @@ class FlowchartCanvas {
       maxY = Math.max(maxY, n.y + (n.height || 55));
     });
 
-    // Учитываем возможные обходные линии слева или справа
-    const extraLeft = 60;
-    const extraRight = 60;
-    const originX = Math.round(minX - padding - extraLeft);
+    // Учитываем возможные обходные линии и кастомные изломы
+    this.edges.forEach(edge => {
+      if (edge.waypoints) {
+        edge.waypoints.forEach(wp => {
+          minX = Math.min(minX, wp.x);
+          minY = Math.min(minY, wp.y);
+          maxX = Math.max(maxX, wp.x);
+          maxY = Math.max(maxY, wp.y);
+        });
+      }
+    });
+
+    const extraMargin = 50;
+    const originX = Math.round(minX - padding - extraMargin);
     const originY = Math.round(minY - padding);
-    const totalW = Math.round((maxX - minX) + (padding * 2) + extraLeft + extraRight);
+    const totalW = Math.round((maxX - minX) + (padding * 2) + extraMargin * 2);
     const totalH = Math.round((maxY - minY) + (padding * 2));
 
     let edgesSvg = "";
     this.edges.forEach(edge => {
-      const fromNode = this.nodes.find(n => n.id === edge.from);
-      const toNode = this.nodes.find(n => n.id === edge.to);
-      if (!fromNode || !toNode) return;
+      const pts = this.getEdgePoints(edge);
+      if (pts.length < 2) return;
 
-      const fromPorts = GostShapes.getPorts(fromNode.x, fromNode.y, fromNode.width, fromNode.height);
-      const toPorts = GostShapes.getPorts(toNode.x, toNode.y, toNode.width, toNode.height);
-
-      let p1 = fromPorts.s;
-      let p2 = toPorts.n;
-
-      if (edge.fromPort && fromPorts[edge.fromPort]) p1 = fromPorts[edge.fromPort];
-      if (edge.toPort && toPorts[edge.toPort]) p2 = toPorts[edge.toPort];
-
-      if (!edge.fromPort && !edge.toPort && toNode.y < fromNode.y) {
-        p1 = fromPorts.w;
-        p2 = toPorts.w;
-      }
-
-      const pathData = GostShapes.buildOrthoPath(p1, p2);
+      const pathData = GostShapes.pointsToSvgPath(pts);
       edgesSvg += `<path d="${pathData}" class="edge-line" fill="none" stroke="#000000" stroke-width="1.5" marker-end="url(#arrowhead)" />\n`;
 
       if (edge.label) {
@@ -186,8 +215,11 @@ class FlowchartCanvas {
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;");
-        const midX = Math.round((p1.x + p2.x) / 2 + 10);
-        const midY = Math.round((p1.y + p2.y) / 2 - 6);
+        const midSegIdx = Math.floor((pts.length - 1) / 2);
+        const pA = pts[midSegIdx];
+        const pB = pts[midSegIdx + 1] || pA;
+        const midX = Math.round((pA.x + pB.x) / 2 + 10);
+        const midY = Math.round((pA.y + pB.y) / 2 - 6);
         edgesSvg += `
           <rect x="${midX - 18}" y="${midY - 11}" width="36" height="16" rx="3" class="edge-label-bg" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" />
           <text x="${midX}" y="${midY + 1}" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', Arial, sans-serif" font-size="11px" fill="#000000">${escapedLabel}</text>
@@ -344,9 +376,42 @@ class FlowchartCanvas {
     }
   }
 
+  resetEdgeRoute(index) {
+    const edge = this.edges[index];
+    if (!edge) return;
+    edge.waypoints = [];
+    this.pushState();
+    this.render();
+  }
+
+  distanceToSegment(p, a, b) {
+    const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+    if (l2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * (b.x - a.x)), p.y - (a.y + t * (b.y - a.y)));
+  }
+
+  findNearestPort(x, y) {
+    let best = null;
+    let minDist = Infinity;
+    this.nodes.forEach(node => {
+      const ports = GostShapes.getPorts(node.x, node.y, node.width, node.height);
+      for (const [portKey, pt] of Object.entries(ports)) {
+        const d = Math.hypot(pt.x - x, pt.y - y);
+        if (d < minDist) {
+          minDist = d;
+          best = { nodeId: node.id, port: portKey, dist: d };
+        }
+      }
+    });
+    return best;
+  }
+
   render() {
     this.renderEdges();
     this.renderNodes();
+    this.renderHandles();
   }
 
   renderNodes() {
@@ -372,26 +437,10 @@ class FlowchartCanvas {
     this.edgesLayer.innerHTML = "";
 
     this.edges.forEach((edge, idx) => {
-      const fromNode = this.nodes.find(n => n.id === edge.from);
-      const toNode = this.nodes.find(n => n.id === edge.to);
-      if (!fromNode || !toNode) return;
+      const pts = this.getEdgePoints(edge);
+      if (pts.length < 2) return;
 
-      const fromPorts = GostShapes.getPorts(fromNode.x, fromNode.y, fromNode.width, fromNode.height);
-      const toPorts = GostShapes.getPorts(toNode.x, toNode.y, toNode.width, toNode.height);
-
-      let p1 = fromPorts.s;
-      let p2 = toPorts.n;
-
-      if (edge.fromPort && fromPorts[edge.fromPort]) p1 = fromPorts[edge.fromPort];
-      if (edge.toPort && toPorts[edge.toPort]) p2 = toPorts[edge.toPort];
-
-      // Авто-обратная петля цикла, если порты не заданы явно
-      if (!edge.fromPort && !edge.toPort && toNode.y < fromNode.y) {
-        p1 = fromPorts.w;
-        p2 = toPorts.w;
-      }
-
-      const pathData = GostShapes.buildOrthoPath(p1, p2);
+      const pathData = GostShapes.pointsToSvgPath(pts);
       const isSelected = this.selectedEdgeIndex === idx;
 
       const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -413,8 +462,11 @@ class FlowchartCanvas {
 
       // Метка ветки ("Да", "Нет" и др.)
       if (edge.label) {
-        const midX = (p1.x + p2.x) / 2 + 10;
-        const midY = (p1.y + p2.y) / 2 - 6;
+        const midSegIdx = Math.floor((pts.length - 1) / 2);
+        const pA = pts[midSegIdx];
+        const pB = pts[midSegIdx + 1] || pA;
+        const midX = Math.round((pA.x + pB.x) / 2 + 10);
+        const midY = Math.round((pA.y + pB.y) / 2 - 6);
 
         const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         bgRect.setAttribute("class", "edge-label-bg");
@@ -433,10 +485,35 @@ class FlowchartCanvas {
         g.appendChild(text);
       }
 
-      // Клик по стрелке выделяет ее
+      // Клик по стрелке: выделение или перетаскивание произвольной точки стрелки
       g.addEventListener("mousedown", (e) => {
         e.stopPropagation();
-        this.selectEdge(idx);
+        if (this.selectedEdgeIndex !== idx) {
+          this.selectEdge(idx);
+        } else {
+          // Стрелка уже выбрана: клик прямо в линию добавляет новый излом в точке клика и начинает его драг!
+          const mouseCanvas = this.clientToCanvas(e.clientX, e.clientY);
+          let bestSeg = 0;
+          let bestDist = Infinity;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const d = this.distanceToSegment(mouseCanvas, pts[i], pts[i + 1]);
+            if (d < bestDist) {
+              bestDist = d;
+              bestSeg = i;
+            }
+          }
+          if (!edge.waypoints || edge.waypoints.length === 0) {
+            edge.waypoints = pts.slice(1, -1).map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+          }
+          const newPt = { x: Math.round(mouseCanvas.x), y: Math.round(mouseCanvas.y) };
+          edge.waypoints.splice(bestSeg, 0, newPt);
+          this.draggedWaypoint = {
+            edgeIndex: idx,
+            wpIndex: bestSeg,
+            startPos: newPt
+          };
+          this.render();
+        }
       });
 
       // Двойной клик по стрелке — быстрое редактирование метки
@@ -453,6 +530,115 @@ class FlowchartCanvas {
 
       this.edgesLayer.appendChild(g);
     });
+  }
+
+  // Отрисовка интерактивных точек управления выбранной стрелкой
+  renderHandles() {
+    if (!this.handlesLayer) return;
+    this.handlesLayer.innerHTML = "";
+    if (this.selectedEdgeIndex === null) return;
+
+    const edge = this.edges[this.selectedEdgeIndex];
+    if (!edge) return;
+
+    const pts = this.getEdgePoints(edge);
+    if (pts.length < 2) return;
+
+    const p1 = pts[0];
+    const p2 = pts[pts.length - 1];
+
+    // 1. Точки излома (Waypoints): перемещение и удаление по двойному клику
+    for (let i = 1; i < pts.length - 1; i++) {
+      const pt = pts[i];
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("class", "edge-handle");
+      circle.setAttribute("cx", Math.round(pt.x));
+      circle.setAttribute("cy", Math.round(pt.y));
+      circle.setAttribute("r", "6");
+      circle.setAttribute("title", "Потяните для изменения положения стрелки. Двойной клик: удалить излом");
+
+      circle.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        if (!edge.waypoints || edge.waypoints.length === 0) {
+          edge.waypoints = pts.slice(1, -1).map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+        }
+        this.draggedWaypoint = {
+          edgeIndex: this.selectedEdgeIndex,
+          wpIndex: i - 1,
+          startPos: { x: pt.x, y: pt.y }
+        };
+      });
+
+      circle.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        if (edge.waypoints && edge.waypoints.length > 0) {
+          edge.waypoints.splice(i - 1, 1);
+          this.pushState();
+          this.render();
+        }
+      });
+
+      this.handlesLayer.appendChild(circle);
+    }
+
+    // 2. Средние точки сегментов для легкого создания новых изгибов
+    for (let i = 0; i < pts.length - 1; i++) {
+      const pA = pts[i];
+      const pB = pts[i + 1];
+      const dist = Math.hypot(pB.x - pA.x, pB.y - pA.y);
+      if (dist < 20) continue;
+
+      const midX = Math.round((pA.x + pB.x) / 2);
+      const midY = Math.round((pA.y + pB.y) / 2);
+
+      const midCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      midCircle.setAttribute("class", "edge-midpoint-handle");
+      midCircle.setAttribute("cx", midX);
+      midCircle.setAttribute("cy", midY);
+      midCircle.setAttribute("r", "4.5");
+      midCircle.setAttribute("title", "Потяните, чтобы добавить новый изгиб стрелки");
+
+      midCircle.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        if (!edge.waypoints || edge.waypoints.length === 0) {
+          edge.waypoints = pts.slice(1, -1).map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+        }
+        edge.waypoints.splice(i, 0, { x: midX, y: midY });
+        this.draggedWaypoint = {
+          edgeIndex: this.selectedEdgeIndex,
+          wpIndex: i,
+          startPos: { x: midX, y: midY }
+        };
+        this.render();
+      });
+
+      this.handlesLayer.appendChild(midCircle);
+    }
+
+    // 3. Порты подключения: начало (зеленый) и конец (красный)
+    const startHandle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    startHandle.setAttribute("class", "edge-port-handle from");
+    startHandle.setAttribute("cx", Math.round(p1.x));
+    startHandle.setAttribute("cy", Math.round(p1.y));
+    startHandle.setAttribute("r", "6");
+    startHandle.setAttribute("title", "Начало стрелки: потяните к любому блоку/порту");
+    startHandle.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      this.draggedPort = { edgeIndex: this.selectedEdgeIndex, which: "from" };
+    });
+    this.handlesLayer.appendChild(startHandle);
+
+    const endHandle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    endHandle.setAttribute("class", "edge-port-handle to");
+    endHandle.setAttribute("cx", Math.round(p2.x));
+    endHandle.setAttribute("cy", Math.round(p2.y));
+    endHandle.setAttribute("r", "6");
+    endHandle.setAttribute("title", "Острие стрелки: потяните к любому блоку/порту");
+    endHandle.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      this.draggedPort = { edgeIndex: this.selectedEdgeIndex, which: "to" };
+    });
+    this.handlesLayer.appendChild(endHandle);
   }
 
   initEvents() {
@@ -483,6 +669,32 @@ class FlowchartCanvas {
         this.draggedNode.x = Math.round(mouseCanvas.x - this.dragOffset.x);
         this.draggedNode.y = Math.round(mouseCanvas.y - this.dragOffset.y);
         this.render();
+      } else if (this.draggedWaypoint) {
+        const mouseCanvas = this.clientToCanvas(e.clientX, e.clientY);
+        const edge = this.edges[this.draggedWaypoint.edgeIndex];
+        if (edge && edge.waypoints && edge.waypoints[this.draggedWaypoint.wpIndex]) {
+          const snap = e.shiftKey ? 1 : 5;
+          const nx = Math.round(mouseCanvas.x / snap) * snap;
+          const ny = Math.round(mouseCanvas.y / snap) * snap;
+          edge.waypoints[this.draggedWaypoint.wpIndex] = { x: nx, y: ny };
+          this.render();
+        }
+      } else if (this.draggedPort) {
+        const mouseCanvas = this.clientToCanvas(e.clientX, e.clientY);
+        const edge = this.edges[this.draggedPort.edgeIndex];
+        if (edge) {
+          const nearest = this.findNearestPort(mouseCanvas.x, mouseCanvas.y);
+          if (nearest && nearest.dist < 35) {
+            if (this.draggedPort.which === "from" && nearest.nodeId !== edge.to) {
+              edge.from = nearest.nodeId;
+              edge.fromPort = nearest.port;
+            } else if (this.draggedPort.which === "to" && nearest.nodeId !== edge.from) {
+              edge.to = nearest.nodeId;
+              edge.toPort = nearest.port;
+            }
+          }
+          this.render();
+        }
       }
     });
 
@@ -499,6 +711,17 @@ class FlowchartCanvas {
         }
         this.draggedNode = null;
         this.dragStartedPos = null;
+      }
+      if (this.draggedWaypoint) {
+        this.pushState();
+        this.draggedWaypoint = null;
+      }
+      if (this.draggedPort) {
+        this.pushState();
+        this.draggedPort = null;
+        if (this.selectedEdgeIndex !== null) {
+          this.onSelectEdge(this.edges[this.selectedEdgeIndex], this.selectedEdgeIndex);
+        }
       }
     });
 

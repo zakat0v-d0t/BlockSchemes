@@ -114,8 +114,14 @@ const GostShapes = {
     }).join("");
   },
 
-  // Построение аккуратной ортогональной линии по правилам ГОСТ 19.701-90
-  buildOrthoPath(p1, p2) {
+  // Преобразование массива точек [{x, y}, ...] в строку SVG path
+  pointsToSvgPath(points) {
+    if (!points || points.length === 0) return "";
+    return points.map((p, i) => `${i === 0 ? "M" : "L"} ${Math.round(p.x)},${Math.round(p.y)}`).join(" ");
+  },
+
+  // Расчет точек ортогональной линии по ГОСТ 19.701-90
+  getOrthoPoints(p1, p2) {
     const x1 = Math.round(p1.x);
     const y1 = Math.round(p1.y);
     const x2 = Math.round(p2.x);
@@ -125,61 +131,81 @@ const GostShapes = {
 
     // 1. Прямая вертикальная линия
     if (Math.abs(x1 - x2) < 3 && dir1 === "s" && dir2 === "n" && y2 > y1) {
-      return `M ${x1},${y1} L ${x1},${y2}`;
+      return [{ x: x1, y: y1 }, { x: x1, y: y2 }];
     }
 
     // 2. Линия из нижнего порта (юг) в верхний порт (север)
     if (dir1 === "s" && dir2 === "n") {
       if (y2 > y1 + 15) {
         const midY = Math.round((y1 + y2) / 2);
-        return `M ${x1},${y1} L ${x1},${midY} L ${x2},${midY} L ${x2},${y2}`;
+        return [{ x: x1, y: y1 }, { x: x1, y: midY }, { x: x2, y: midY }, { x: x2, y: y2 }];
       } else {
         // Если целевой блок выше (обратная петля цикла): уходим в обход
         const sideX = Math.min(x1, x2) - 50;
-        return `M ${x1},${y1} L ${x1},${y1 + 20} L ${sideX},${y1 + 20} L ${sideX},${y2 - 20} L ${x2},${y2 - 20} L ${x2},${y2}`;
+        return [
+          { x: x1, y: y1 },
+          { x: x1, y: y1 + 20 },
+          { x: sideX, y: y1 + 20 },
+          { x: sideX, y: y2 - 20 },
+          { x: x2, y: y2 - 20 },
+          { x: x2, y: y2 }
+        ];
       }
     }
 
     // 3. Линия из правого порта (восток)
     if (dir1 === "e") {
       if (dir2 === "n") {
-        // Идет вправо до x2, затем вниз до y2
         if (x2 > x1) {
-          return `M ${x1},${y1} L ${x2},${y1} L ${x2},${y2}`;
+          return [{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x2, y: y2 }];
         } else {
-          // Идет вправо, опускается/поднимается, затем к x2
           const rightX = Math.max(x1, x2) + 40;
-          return `M ${x1},${y1} L ${rightX},${y1} L ${rightX},${y2 - 20} L ${x2},${y2 - 20} L ${x2},${y2}`;
+          return [
+            { x: x1, y: y1 },
+            { x: rightX, y: y1 },
+            { x: rightX, y: y2 - 20 },
+            { x: x2, y: y2 - 20 },
+            { x: x2, y: y2 }
+          ];
         }
       } else if (dir2 === "w") {
         const midX = Math.round((x1 + x2) / 2);
-        return `M ${x1},${y1} L ${midX},${y1} L ${midX},${y2} L ${x2},${y2}`;
+        return [{ x: x1, y: y1 }, { x: midX, y: y1 }, { x: midX, y: y2 }, { x: x2, y: y2 }];
       } else {
-        return `M ${x1},${y1} L ${x2},${y1} L ${x2},${y2}`;
+        return [{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x2, y: y2 }];
       }
     }
 
     // 4. Линия из левого порта (запад)
     if (dir1 === "w") {
       if (dir2 === "w") {
-        // Обходная петля слева
         const leftX = Math.min(x1, x2) - 40;
-        return `M ${x1},${y1} L ${leftX},${y1} L ${leftX},${y2} L ${x2},${y2}`;
+        return [{ x: x1, y: y1 }, { x: leftX, y: y1 }, { x: leftX, y: y2 }, { x: x2, y: y2 }];
       } else if (dir2 === "n") {
-        return `M ${x1},${y1} L ${x2},${y1} L ${x2},${y2}`;
+        return [{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x2, y: y2 }];
       } else {
         const leftX = Math.min(x1, x2) - 30;
-        return `M ${x1},${y1} L ${leftX},${y1} L ${leftX},${y2} L ${x2},${y2}`;
+        return [{ x: x1, y: y1 }, { x: leftX, y: y1 }, { x: leftX, y: y2 }, { x: x2, y: y2 }];
       }
     }
 
     // 5. Общий случай (ортогональная Z-линия)
     if (y2 >= y1) {
       const midY = Math.round((y1 + y2) / 2);
-      return `M ${x1},${y1} L ${x1},${midY} L ${x2},${midY} L ${x2},${y2}`;
+      return [{ x: x1, y: y1 }, { x: x1, y: midY }, { x: x2, y: midY }, { x: x2, y: y2 }];
     } else {
       const sideX = Math.min(x1, x2) - 40;
-      return `M ${x1},${y1} L ${sideX},${y1} L ${sideX},${y2} L ${x2},${y2}`;
+      return [{ x: x1, y: y1 }, { x: sideX, y: y1 }, { x: sideX, y: y2 }, { x: x2, y: y2 }];
     }
+  },
+
+  // Построение аккуратной ортогональной линии или пути по произвольным точкам
+  buildOrthoPath(p1, p2, waypoints = []) {
+    if (waypoints && waypoints.length > 0) {
+      const pts = [p1, ...waypoints, p2];
+      return GostShapes.pointsToSvgPath(pts);
+    }
+    const pts = GostShapes.getOrthoPoints(p1, p2);
+    return GostShapes.pointsToSvgPath(pts);
   }
 };

@@ -418,6 +418,60 @@ body {
   stroke-width: 2.5px;
 }
 
+/* Интерактивные точки управления стрелкой */
+.edge-handle {
+  fill: #ffffff;
+  stroke: var(--primary);
+  stroke-width: 2px;
+  cursor: grab;
+  transition: r 0.1s, fill 0.1s;
+}
+
+.edge-handle:hover {
+  fill: var(--primary);
+  r: 7px;
+}
+
+.edge-handle.dragging {
+  cursor: grabbing;
+  fill: var(--primary);
+  r: 8px;
+}
+
+.edge-midpoint-handle {
+  fill: #93c5fd;
+  stroke: #ffffff;
+  stroke-width: 1.5px;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: r 0.1s, opacity 0.1s;
+}
+
+.edge-midpoint-handle:hover {
+  opacity: 1;
+  r: 6px;
+  fill: var(--primary);
+}
+
+.edge-port-handle {
+  stroke: #ffffff;
+  stroke-width: 2px;
+  cursor: crosshair;
+  transition: r 0.15s;
+}
+
+.edge-port-handle.from {
+  fill: #10b981;
+}
+
+.edge-port-handle.to {
+  fill: #ef4444;
+}
+
+.edge-port-handle:hover {
+  r: 8px;
+}
+
 .edge-info-badge {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
