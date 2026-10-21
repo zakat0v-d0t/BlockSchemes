@@ -139,7 +139,7 @@ class FlowchartCanvas {
       return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><text x="200" y="100" text-anchor="middle">Пустая схема</text></svg>`;
     }
 
-    const padding = 40;
+    const padding = 50;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     this.nodes.forEach(n => {
@@ -149,12 +149,13 @@ class FlowchartCanvas {
       maxY = Math.max(maxY, n.y + (n.height || 55));
     });
 
-    // Учитываем возможные обратные петли стрелок слева
-    const leftOffset = Math.max(0, 50 - minX);
-    const originX = minX - padding - leftOffset;
-    const originY = minY - padding;
-    const totalW = Math.max(300, (maxX - minX) + padding * 2 + leftOffset);
-    const totalH = Math.max(200, (maxY - minY) + padding * 2);
+    // Учитываем возможные обходные линии слева или справа
+    const extraLeft = 60;
+    const extraRight = 60;
+    const originX = Math.round(minX - padding - extraLeft);
+    const originY = Math.round(minY - padding);
+    const totalW = Math.round((maxX - minX) + (padding * 2) + extraLeft + extraRight);
+    const totalH = Math.round((maxY - minY) + (padding * 2));
 
     let edgesSvg = "";
     this.edges.forEach(edge => {
@@ -177,14 +178,14 @@ class FlowchartCanvas {
       }
 
       const pathData = GostShapes.buildOrthoPath(p1, p2);
-      edgesSvg += `<path d="${pathData}" fill="none" stroke="#000000" stroke-width="1.5" marker-end="url(#arrowhead)" />`;
+      edgesSvg += `<path d="${pathData}" class="edge-line" fill="none" stroke="#000000" stroke-width="1.5" marker-end="url(#arrowhead)" />\n`;
 
       if (edge.label) {
-        const midX = (p1.x + p2.x) / 2 + 10;
-        const midY = (p1.y + p2.y) / 2 - 6;
+        const midX = Math.round((p1.x + p2.x) / 2 + 10);
+        const midY = Math.round((p1.y + p2.y) / 2 - 6);
         edgesSvg += `
-          <rect x="${midX - 18}" y="${midY - 11}" width="36" height="16" rx="3" fill="#ffffff" />
-          <text x="${midX}" y="${midY + 1}" text-anchor="middle" font-family="Liberation Sans, Arial, sans-serif" font-size="11" fill="#000000">${edge.label}</text>
+          <rect x="${midX - 18}" y="${midY - 11}" width="36" height="16" rx="3" class="edge-label-bg" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" />
+          <text x="${midX}" y="${midY + 1}" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', Arial, sans-serif" font-size="11px" fill="#000000">${edge.label}</text>
         `;
       }
     });
@@ -193,17 +194,24 @@ class FlowchartCanvas {
     this.nodes.forEach(node => {
       const shape = GostShapes.renderShapeSvg(node);
       const text = GostShapes.renderTextSvg(node);
-      nodesSvg += `<g>${shape}${text}</g>`;
+      nodesSvg += `<g class="gost-node-export">${shape}${text}</g>\n`;
     });
 
     return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="${originX} ${originY} ${totalW} ${totalH}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}pt" height="${totalH}pt" viewBox="${originX} ${originY} ${totalW} ${totalH}">
   <defs>
     <marker id="arrowhead" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto">
       <polygon points="0 0, 9 3, 0 6" fill="#000000" />
     </marker>
   </defs>
-  <rect x="${originX}" y="${originY}" width="${totalW}" height="${totalH}" fill="#ffffff" />
+  <style>
+    rect.canvas-bg { fill: #ffffff; }
+    .gost-node-export rect, .gost-node-export polygon, .gost-node-export circle, .gost-node-export path { fill: #ffffff !important; stroke: #000000 !important; stroke-width: 1.5px !important; }
+    .edge-line { fill: none !important; stroke: #000000 !important; stroke-width: 1.5px !important; }
+    .edge-label-bg { fill: #ffffff !important; }
+    text { font-family: 'Liberation Sans', 'DejaVu Sans', Arial, sans-serif !important; fill: #000000 !important; }
+  </style>
+  <rect class="canvas-bg" x="${originX}" y="${originY}" width="${totalW}" height="${totalH}" fill="#ffffff" />
   <g>
     ${edgesSvg}
     ${nodesSvg}
