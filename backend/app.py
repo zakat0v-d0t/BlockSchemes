@@ -3,9 +3,12 @@ app.py - FastAPI веб-сервер приложения GOST Flowchart Editor.
 """
 
 import os
-from fastapi import FastAPI, HTTPException, Response, UploadFile, File, Form
+import shutil
+import subprocess
+import tempfile
+from fastapi import FastAPI, HTTPException, Response, UploadFile, File
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 
@@ -37,6 +40,7 @@ class FlowchartModel(BaseModel):
 class ExportRequest(BaseModel):
     model: Optional[Dict[str, Any]] = None
     dot: Optional[str] = None
+    svg: Optional[str] = None
     format: str = "png"
     dpi: Optional[int] = 300
 
@@ -132,11 +136,10 @@ async def api_auto_layout(flowchart: FlowchartModel):
 
 @app.post("/api/export")
 async def api_export(req: ExportRequest):
-    """Экспорт схемы в PNG (300 DPI), SVG, PDF или DOT."""
-    dot_str = req.dot if req.dot else (build_dot_from_model(req.model) if req.model else "")
-    if not dot_str.strip():
-        raise HTTPException(status_code=400, detail="Отсутствуют данные схемы")
-
+    """
+    Экспорт схемы в PNG (300 DPI), SVG, PDF или DOT.
+    Если передан svg (ручная расстановка пользователя с холста), экспортирует именно его!
+    """
     fmt = req.format.lower()
     dpi = req.dpi or 300
 
@@ -148,19 +151,81 @@ async def api_export(req: ExportRequest):
     }
 
     try:
+        if fmt == "dot":
+            dot_str = req.dot if req.dot else (build_dot_from_model(req.model) if req.model else "")
+            return Response(
+                content=dot_str.encode("utf-8"),
+                media_type="text/vnd.graphviz",
+                headers={"Content-Disposition": 'attachment; filename="flowchart_gost.dot"'}
+            )
+
+        # Если передан актуальный SVG холста пользователя
+        if req.svg and req.svg.strip():
+            svg_data = req.svg.strip()
+            if fmt == "svg":
+                return Response(
+                    content=svg_data.encode("utf-8"),
+                    media_type="image/svg+xml",
+                    headers={"Content-Disposition": 'attachment; filename="flowchart_gost.svg"'}
+                )
+
+            with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False, encoding="utf-8") as f_svg:
+                f_svg.write(svg_data)
+                f_svg_path = f_svg.name
+
+            out_file = f_svg_path + f".{fmt}"
+            try:
+                if fmt == "png":
+                    if shutil.which("rsvg-convert"):
+                        subprocess.run(
+                            ["rsvg-convert", "-d", str(dpi), "-p", str(dpi), f_svg_path, "-o", out_file],
+                            check=True
+                        )
+                    else:
+                        subprocess.run(["magick", "-density", str(dpi), f_svg_path, out_file], check=True)
+                elif fmt == "pdf":
+                    if shutil.which("rsvg-convert"):
+                        subprocess.run(
+                            ["rsvg-convert", "-f", "pdf", f_svg_path, "-o", out_file],
+                            check=True
+                        )
+                    else:
+                        subprocess.run(["magick", f_svg_path, out_file], check=True)
+                else:
+                    raise ValueError(f"Неизвестный формат экспорта: {fmt}")
+
+                with open(out_file, "rb") as f_out:
+                    content_bytes = f_out.read()
+
+                return Response(
+                    content=content_bytes,
+                    media_type=media_types.get(fmt, "application/octet-stream"),
+                    headers={"Content-Disposition": f'attachment; filename="flowchart_gost.{fmt}"'}
+                )
+            finally:
+                for p in [f_svg_path, out_file]:
+                    if os.path.exists(p):
+                        try:
+                            os.remove(p)
+                        except OSError:
+                            pass
+
+        # Фоллбек через DOT
+        dot_str = req.dot if req.dot else (build_dot_from_model(req.model) if req.model else "")
+        if not dot_str.strip():
+            raise HTTPException(status_code=400, detail="Отсутствуют данные схемы")
+
         data = export_format(dot_str, fmt, dpi)
         media_type = media_types.get(fmt, "application/octet-stream")
-        filename = f"flowchart_gost.{fmt}"
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+            headers={"Content-Disposition": f'attachment; filename="flowchart_gost.{fmt}"'}
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Раздача статики фронтенда
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 

@@ -224,14 +224,56 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Экспорт
+  // Выпадающее меню экспорта
+  const dropdownToggle = document.querySelector(".dropdown-toggle");
+  const dropdownMenu = document.querySelector(".dropdown-menu");
+
+  if (dropdownToggle && dropdownMenu) {
+    dropdownToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dropdownMenu.classList.toggle("show");
+    });
+
+    window.addEventListener("click", () => {
+      dropdownMenu.classList.remove("show");
+    });
+
+    dropdownMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+  }
+
+  // Экспорт схемы: экспортирует в точности то, что находится на холсте (без скрытого автовыравнивания)
   async function triggerExport(fmt) {
+    if (dropdownMenu) dropdownMenu.classList.remove("show");
+
     const data = canvas.getData();
+    const currentSvg = canvas.getExportSvg();
+
+    // Быстрый локальный экспорт SVG без задержек сети
+    if (fmt === "svg") {
+      const blob = new Blob([currentSvg], { type: "image/svg+xml;charset=utf-8" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "flowchart_gost.svg";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      return;
+    }
+
     try {
       const resp = await fetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: data, format: fmt, dpi: 300 })
+        body: JSON.stringify({
+          svg: currentSvg,
+          model: data,
+          format: fmt,
+          dpi: 300
+        })
       });
       if (!resp.ok) throw new Error("Ошибка генерации файла экспорта");
 
@@ -257,6 +299,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Сохранение и загрузка JSON проекта
   document.getElementById("btn-save-json").addEventListener("click", (e) => {
     e.preventDefault();
+    if (dropdownMenu) dropdownMenu.classList.remove("show");
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(canvas.getData(), null, 2));
     const a = document.createElement("a");
     a.href = dataStr;
@@ -267,6 +310,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const jsonFileInput = document.getElementById("json-file-input");
   document.getElementById("btn-load-json").addEventListener("click", (e) => {
     e.preventDefault();
+    if (dropdownMenu) dropdownMenu.classList.remove("show");
     jsonFileInput.click();
   });
 

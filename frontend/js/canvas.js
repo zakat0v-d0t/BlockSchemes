@@ -133,6 +133,84 @@ class FlowchartCanvas {
     this.render();
   }
 
+  // Генерация чистого автономного SVG со всеми узлами и стрелками в текущих координатах пользователя
+  getExportSvg() {
+    if (this.nodes.length === 0) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><text x="200" y="100" text-anchor="middle">Пустая схема</text></svg>`;
+    }
+
+    const padding = 40;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    this.nodes.forEach(n => {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + (n.width || 150));
+      maxY = Math.max(maxY, n.y + (n.height || 55));
+    });
+
+    // Учитываем возможные обратные петли стрелок слева
+    const leftOffset = Math.max(0, 50 - minX);
+    const originX = minX - padding - leftOffset;
+    const originY = minY - padding;
+    const totalW = Math.max(300, (maxX - minX) + padding * 2 + leftOffset);
+    const totalH = Math.max(200, (maxY - minY) + padding * 2);
+
+    let edgesSvg = "";
+    this.edges.forEach(edge => {
+      const fromNode = this.nodes.find(n => n.id === edge.from);
+      const toNode = this.nodes.find(n => n.id === edge.to);
+      if (!fromNode || !toNode) return;
+
+      const fromPorts = GostShapes.getPorts(fromNode.x, fromNode.y, fromNode.width, fromNode.height);
+      const toPorts = GostShapes.getPorts(toNode.x, toNode.y, toNode.width, toNode.height);
+
+      let p1 = fromPorts.s;
+      let p2 = toPorts.n;
+
+      if (edge.fromPort && fromPorts[edge.fromPort]) p1 = fromPorts[edge.fromPort];
+      if (edge.toPort && toPorts[edge.toPort]) p2 = toPorts[edge.toPort];
+
+      if (!edge.fromPort && !edge.toPort && toNode.y < fromNode.y) {
+        p1 = fromPorts.w;
+        p2 = toPorts.w;
+      }
+
+      const pathData = GostShapes.buildOrthoPath(p1, p2);
+      edgesSvg += `<path d="${pathData}" fill="none" stroke="#000000" stroke-width="1.5" marker-end="url(#arrowhead)" />`;
+
+      if (edge.label) {
+        const midX = (p1.x + p2.x) / 2 + 10;
+        const midY = (p1.y + p2.y) / 2 - 6;
+        edgesSvg += `
+          <rect x="${midX - 18}" y="${midY - 11}" width="36" height="16" rx="3" fill="#ffffff" />
+          <text x="${midX}" y="${midY + 1}" text-anchor="middle" font-family="Liberation Sans, Arial, sans-serif" font-size="11" fill="#000000">${edge.label}</text>
+        `;
+      }
+    });
+
+    let nodesSvg = "";
+    this.nodes.forEach(node => {
+      const shape = GostShapes.renderShapeSvg(node);
+      const text = GostShapes.renderTextSvg(node);
+      nodesSvg += `<g>${shape}${text}</g>`;
+    });
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="${originX} ${originY} ${totalW} ${totalH}">
+  <defs>
+    <marker id="arrowhead" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 9 3, 0 6" fill="#000000" />
+    </marker>
+  </defs>
+  <rect x="${originX}" y="${originY}" width="${totalW}" height="${totalH}" fill="#ffffff" />
+  <g>
+    ${edgesSvg}
+    ${nodesSvg}
+  </g>
+</svg>`;
+  }
+
   getData() {
     return {
       nodes: this.nodes,
