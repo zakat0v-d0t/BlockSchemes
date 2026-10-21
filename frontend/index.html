@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Редактор блок-схем по ГОСТ 19.701-90</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Верхняя панель (Header / Actions) -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="6" rx="3" />
+            <path d="M12 9v4" />
+            <polygon points="12 13 18 17 12 21 6 17 12 13" />
+          </svg>
+          <span class="logo-title">ГОСТ 19.701-90</span>
+          <span class="logo-badge">Flowchart Studio</span>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <button id="btn-import-code" class="btn btn-primary" title="Загрузить или вставить код программы">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Сгенерировать из кода
+        </button>
+        <button id="btn-auto-layout" class="btn btn-secondary" title="Автоматически выровнять по стандартам ГОСТ">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Выравнивание по ГОСТу
+        </button>
+        <button id="btn-toggle-dot" class="btn btn-outline" title="Редактор DOT кода">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Код схемы (DOT)
+        </button>
+      </div>
+
+      <div class="header-right">
+        <div class="export-group">
+          <button id="btn-export-png" class="btn btn-accent" title="Экспорт в ультрачеткий PNG (300 DPI по ГОСТу)">
+            📷 Экспорт PNG (300 DPI)
+          </button>
+          <div class="dropdown">
+            <button class="btn btn-secondary dropdown-toggle">
+              Другие форматы ▼
+            </button>
+            <div class="dropdown-menu">
+              <a href="#" id="export-svg">📐 Векторный SVG</a>
+              <a href="#" id="export-pdf">📄 Документ PDF (печать)</a>
+              <a href="#" id="export-dot">📝 Исходник DOT</a>
+              <hr/>
+              <a href="#" id="btn-save-json">💾 Сохранить проект (.json)</a>
+              <a href="#" id="btn-load-json">📂 Открыть проект (.json)</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Основное рабочее пространство -->
+    <div class="workspace">
+      <!-- Левая панель инструментов (Палитра символов ГОСТ) -->
+      <aside class="left-toolbar">
+        <div class="toolbar-section">
+          <span class="section-title">Инструменты</span>
+          <div class="tool-buttons">
+            <button id="tool-select" class="tool-btn active" title="Выделение и перемещение (V)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+              <span>Выбор</span>
+            </button>
+            <button id="tool-connect" class="tool-btn" title="Соединить стрелкой (C)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              <span>Связь</span>
+            </button>
+            <button id="tool-delete" class="tool-btn danger" title="Удалить выбранное (Del)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <span>Удалить</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="toolbar-section">
+          <span class="section-title">Символы ГОСТ 19.701-90</span>
+          <div class="shapes-palette">
+            <div class="shape-item" data-shape="terminator" title="Терминатор (Пуск-останов: Начало / Конец)">
+              <div class="shape-preview shape-terminator"></div>
+              <span>Терминатор</span>
+            </div>
+            <div class="shape-item" data-shape="process" title="Процесс (Вычислительная операция, присваивание)">
+              <div class="shape-preview shape-process"></div>
+              <span>Процесс</span>
+            </div>
+            <div class="shape-item" data-shape="decision" title="Решение (Условие, ветвление: ромб)">
+              <div class="shape-preview shape-decision"></div>
+              <span>Условие</span>
+            </div>
+            <div class="shape-item" data-shape="io" title="Данные (Ввод-вывод, ошибки: параллелограмм)">
+              <div class="shape-preview shape-io"></div>
+              <span>Ввод-вывод</span>
+            </div>
+            <div class="shape-item" data-shape="subroutine" title="Предопределенный процесс (Вызов подпрограммы: двойные линии)">
+              <div class="shape-preview shape-subroutine"></div>
+              <span>Подпрограмма</span>
+            </div>
+            <div class="shape-item" data-shape="document" title="Документ (Печатный вывод, волна снизу)">
+              <div class="shape-preview shape-document"></div>
+              <span>Документ</span>
+            </div>
+            <div class="shape-item" data-shape="database" title="Запоминающее устройство (База данных, файл)">
+              <div class="shape-preview shape-database"></div>
+              <span>База данных</span>
+            </div>
+            <div class="shape-item" data-shape="preparation" title="Подготовка (Цикл со счетчиком: шестиугольник)">
+              <div class="shape-preview shape-preparation"></div>
+              <span>Подготовка</span>
+            </div>
+            <div class="shape-item" data-shape="connector" title="Соединитель (Кружок разрыва)">
+              <div class="shape-preview shape-connector"></div>
+              <span>Соединитель</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Центральный интерактивный холст -->
+      <main class="canvas-container" id="canvas-container">
+        <div class="canvas-controls">
+          <button id="btn-zoom-in" class="canvas-btn" title="Приблизить">+</button>
+          <button id="btn-zoom-reset" class="canvas-btn" title="Сбросить масштаб">100%</button>
+          <button id="btn-zoom-out" class="canvas-btn" title="Отдалить">−</button>
+        </div>
+
+        <!-- SVG слой холста -->
+        <svg id="flowchart-svg" class="flowchart-svg" width="3000" height="3000">
+          <defs>
+            <marker id="arrowhead" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 9 3, 0 6" fill="#000000" />
+            </marker>
+            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f0f2f5" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)" />
+          <g id="viewport-group">
+            <g id="edges-layer"></g>
+            <g id="nodes-layer"></g>
+          </g>
+        </svg>
+
+        <div id="inline-editor" class="inline-editor" style="display: none;">
+          <textarea id="inline-editor-input"></textarea>
+        </div>
+      </main>
+
+      <!-- Правая панель свойств блока (Inspector) -->
+      <aside class="right-inspector" id="right-inspector">
+        <div class="inspector-header">
+          <span class="inspector-title">Свойства блока</span>
+          <button id="btn-close-inspector" class="btn-icon">✕</button>
+        </div>
+
+        <div class="inspector-body" id="inspector-body">
+          <p class="empty-state">Выберите блок на схеме для редактирования его параметров</p>
+
+          <div id="inspector-content" style="display: none;">
+            <div class="form-group">
+              <label for="block-type">Тип символа (ГОСТ 19.701-90):</label>
+              <select id="block-type" class="form-control">
+                <option value="terminator">🛑 Терминатор (Начало / Конец)</option>
+                <option value="process">⏹️ Процесс (Вычисление / действие)</option>
+                <option value="decision">🔶 Решение (Условие / ромб)</option>
+                <option value="io">▱ Данные / Ввод-вывод / Ошибка</option>
+                <option value="subroutine">📑 Подпрограмма (Предопределенный)</option>
+                <option value="document">📜 Документ (Печать отчета)</option>
+                <option value="database">🛢️ База данных / Файл</option>
+                <option value="preparation">⬡ Подготовка (Цикл for)</option>
+                <option value="connector">⚪ Соединитель</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="block-text">Текст внутри блока:</label>
+              <textarea id="block-text" class="form-control" rows="4" placeholder="Краткий текст на русском языке по ГОСТу..."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>Исходящие ветви:</label>
+              <div id="outgoing-edges-list" class="edges-list"></div>
+            </div>
+
+            <div class="inspector-actions">
+              <button id="btn-delete-selected" class="btn btn-danger-outline btn-block">
+                🗑️ Удалить блок
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Модальное окно импорта исходного кода -->
+    <div id="modal-import" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Генерация блок-схемы из кода</h3>
+          <button class="modal-close" id="modal-import-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="import-options">
+            <div class="drop-zone" id="drop-zone">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span>Перетащите файл с кодом сюда или</span>
+              <label class="btn btn-outline file-input-label">
+                Выберите файл
+                <input type="file" id="file-code-input" style="display: none;" accept=".py,.cpp,.c,.pas,.js,.java,.go,.txt" />
+              </label>
+            </div>
+
+            <div class="code-examples">
+              <span>Быстрый пример:</span>
+              <button class="badge-btn" data-example="crypto">Шифрование OTP (lab2.3)</button>
+              <button class="badge-btn" data-example="search">Поиск максимума</button>
+              <button class="badge-btn" data-example="factorial">Факториал с условием</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="code-input">Или вставьте код программы (Python, C, C++, Pascal, JS и др.):</label>
+            <textarea id="code-input" class="code-textarea" rows="12" placeholder="def my_algorithm(data):&#10;    ..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-import-cancel">Отмена</button>
+          <button class="btn btn-primary" id="btn-import-submit">Построить схему по ГОСТу</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно редактора DOT кода -->
+    <div id="modal-dot" class="modal">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h3>Редактор исходного Graphviz DOT кода</h3>
+          <button class="modal-close" id="modal-dot-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <textarea id="dot-editor-input" class="code-textarea dot-textarea" rows="18"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-dot-cancel">Отмена</button>
+          <button class="btn btn-primary" id="btn-dot-apply">Применить изменения</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Скрытый инпут для открытия проекта JSON -->
+    <input type="file" id="json-file-input" style="display: none;" accept=".json" />
+  </div>
+
+  <script src="/static/js/gost_shapes.js"></script>
+  <script src="/static/js/canvas.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

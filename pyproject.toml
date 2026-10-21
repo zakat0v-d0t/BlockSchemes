@@ -1,0 +1,22 @@
+[project]
+name = "gost-flowchart-web"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "zakat0v-d0t", email = "tommasvendetta06@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.158.2",
+    "httpx>=0.28.1",
+    "python-multipart>=0.0.32",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+gost-flowchart-web = "gost_flowchart_web:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
