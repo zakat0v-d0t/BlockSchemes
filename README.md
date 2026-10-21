@@ -25,7 +25,7 @@ run.bat
 - Windows: `update.bat`
 
 ## Требования
-- Python 3.10+
+- Python 3.10+ (наличие `uv` опционально: приложение работает как с `uv`, так и со стандартным Python без сторонних пакетных менеджеров)
 - Graphviz (`dot`) и `librsvg` (`rsvg-convert`)
 
 ## Возможности

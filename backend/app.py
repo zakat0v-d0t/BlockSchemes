@@ -3,6 +3,17 @@ app.py - FastAPI веб-сервер приложения GOST Flowchart Editor.
 """
 
 import os
+import sys
+
+# Подключение завендоренных библиотек (работает автономно без uv и pip)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+VENDOR_PKG = os.path.join(BASE_DIR, "vendor", "packages")
+if os.path.exists(VENDOR_PKG) and VENDOR_PKG not in sys.path:
+    sys.path.insert(0, VENDOR_PKG)
+
 import shutil
 import subprocess
 import tempfile
@@ -22,7 +33,6 @@ from backend.renderer import (
 
 app = FastAPI(title="GOST Flowchart Editor", version="1.0.0")
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
 
@@ -243,5 +253,11 @@ async def root():
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="GOST Flowchart Studio Server")
+    parser.add_argument("--host", default="127.0.0.1", help="Хост сервера")
+    parser.add_argument("--port", type=int, default=8000, help="Порт сервера")
+    args = parser.parse_args()
+
     import uvicorn
-    uvicorn.run("backend.app:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run(app, host=args.host, port=args.port)

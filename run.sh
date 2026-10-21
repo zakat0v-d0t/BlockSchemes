@@ -1,26 +1,24 @@
 #!/usr/bin/env bash
-# run.sh - Автоматический запуск GOST Flowchart Studio без необходимости ручной установки зависимостей
+# run.sh - Автономный запуск GOST Flowchart Studio (работает с uv или с обычным Python без uv/pip)
 
 cd "$(dirname "$0")"
 
-# 1. Проверка и автоматическая настройка виртуального окружения
-if [ ! -d ".venv" ]; then
-  echo "Настройка локального окружения..."
-  if command -v uv > /dev/null; then
-    uv venv .venv
-    # Установка из локальной папки vendor/wheels (оффлайн, без интернета)
-    uv pip install --no-index --find-links=vendor/wheels fastapi uvicorn python-multipart 2>/dev/null || uv pip install fastapi uvicorn python-multipart
-  else
-    python3 -m venv .venv
-    .venv/bin/pip install --no-index --find-links=vendor/wheels fastapi uvicorn python-multipart 2>/dev/null || .venv/bin/pip install fastapi uvicorn python-multipart
-  fi
+# 1. Поиск интерпретатора (uv -> python3 -> python)
+if command -v uv > /dev/null 2>&1; then
+  RUNNER="uv run python"
+elif command -v python3 > /dev/null 2>&1; then
+  RUNNER="python3"
+elif command -v python > /dev/null 2>&1; then
+  RUNNER="python"
+else
+  echo "Ошибка: Python 3 не найден в системе. Установите Python 3."
+  exit 1
 fi
 
 # 2. Выбор свободного случайного порта
-if command -v uv > /dev/null; then
-  PORT=$(uv run python -c "import socket; s=socket.socket(); s.bind(('', 0)); print(s.getsockname()[1]); s.close()")
-else
-  PORT=$(.venv/bin/python -c "import socket; s=socket.socket(); s.bind(('', 0)); print(s.getsockname()[1]); s.close()")
+PORT=$(${RUNNER} -c "import socket; s=socket.socket(); s.bind(('', 0)); print(s.getsockname()[1]); s.close()")
+if [ -z "${PORT}" ]; then
+  PORT=8000
 fi
 
 HOST="127.0.0.1"
@@ -32,15 +30,11 @@ echo "  URL: ${URL}"
 echo "=========================================================="
 
 # 3. Открытие в браузере
-if command -v xdg-open > /dev/null; then
+if command -v xdg-open > /dev/null 2>&1; then
   (sleep 1.2 && xdg-open "${URL}") &
-elif command -v open > /dev/null; then
+elif command -v open > /dev/null 2>&1; then
   (sleep 1.2 && open "${URL}") &
 fi
 
-# 4. Запуск сервера
-if command -v uv > /dev/null; then
-  exec uv run uvicorn backend.app:app --host "${HOST}" --port "${PORT}"
-else
-  exec .venv/bin/uvicorn backend.app:app --host "${HOST}" --port "${PORT}"
-fi
+# 4. Запуск сервера с завендоренными пакетами
+exec ${RUNNER} backend/app.py --host "${HOST}" --port "${PORT}"
